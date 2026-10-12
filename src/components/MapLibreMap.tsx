@@ -21,6 +21,11 @@ interface MapLibreMapProps {
   onNearbyFound?: (count: number) => void;
 }
 
+// Ensure MapLibre GL worker URL points to the bundled worker script in public/
+if (maplibregl.config) {
+  maplibregl.config.WORKER_URL = '/maplibre-gl-worker.mjs';
+}
+
 // Configurable OpenFreeMap vector style URL
 const DEFAULT_STYLE_URL =
   (import.meta.env?.VITE_MAP_STYLE_URL as string) ||
@@ -107,6 +112,10 @@ export function MapLibreMap({
 
     // Add navigation controls (zoom + pitch)
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottom-right');
+
+    map.on('error', (e) => {
+      console.error('[MapLibre GL Error]', e);
+    });
 
     map.on('load', () => {
       setIsMapLoaded(true);
