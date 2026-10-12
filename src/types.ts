@@ -84,6 +84,7 @@ export interface FilterState {
   selectedStation: string; // 'all' or stationId
   selectedZone: string; // 'all' or zone
   selectedCategory: string; // 'all' or category
+  selectedStyle: string; // 'all' or artistic style
   maxDistanceMeters: number; // 0 for any, or 500, 1000, 2000
   onlyVerified: boolean;
 }

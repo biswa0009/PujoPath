@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Pandal, MetroStation, RouteResult, RouteStop } from '../types';
 import { METRO_STATIONS_BY_ID } from '../data/metroStations';
+import { CATEGORY_STYLES, DEFAULT_CATEGORY_STYLE, FEATURED_MARKER_STYLE } from '../data/categoryMeta';
 
 interface MapLibreMapProps {
   pandals: Pandal[];
@@ -21,17 +22,16 @@ interface MapLibreMapProps {
   onNearbyFound?: (count: number) => void;
 }
 
-// Ensure MapLibre GL worker URL points to the bundled worker script in public/
+// MapLibre Web Worker URL
 if (maplibregl.config) {
   maplibregl.config.WORKER_URL = '/maplibre-gl-worker.mjs';
 }
 
-// Configurable OpenFreeMap vector style URL
 const DEFAULT_STYLE_URL =
   (import.meta.env?.VITE_MAP_STYLE_URL as string) ||
   'https://tiles.openfreemap.org/styles/liberty';
 
-// Helper to create a GeoJSON circle polygon for GPS accuracy
+// Helper to create GeoJSON circle for GPS accuracy
 function createGeoJsonCircle(center: [number, number], radiusInMeters: number, points = 64) {
   const [lng, lat] = center;
   const coords: [number, number][] = [];
@@ -77,6 +77,7 @@ export function MapLibreMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [mapStyleUrl, setMapStyleUrl] = useState(DEFAULT_STYLE_URL);
+  const [isLegendOpen, setIsLegendOpen] = useState(false);
 
   // User Geolocation State
   const [userLocation, setUserLocation] = useState<{
@@ -87,17 +88,49 @@ export function MapLibreMap({
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // Marker storage refs to clean up without full map teardown
-  const pandalMarkersRef = useRef<maplibregl.Marker[]>([]);
+  // Markers refs
   const metroMarkersRef = useRef<maplibregl.Marker[]>([]);
   const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker[]>([]);
+  const activePopupRef = useRef<maplibregl.Popup | null>(null);
+
+  // Prepare GeoJSON for Pandals
+  const pandalsGeoJson = useMemo(() => {
+    const features = pandals
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && p.lat !== 0 && p.lng !== 0)
+      .map((p) => {
+        const catMeta = CATEGORY_STYLES[p.category] || DEFAULT_CATEGORY_STYLE;
+        const color = p.highlighted ? FEATURED_MARKER_STYLE.color : catMeta.color;
+        return {
+          type: 'Feature' as const,
+          id: p.id,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [p.lng!, p.lat!],
+          },
+          properties: {
+            id: p.id,
+            name: p.name,
+            bengaliName: p.bengaliName || '',
+            category: p.category,
+            categoryColor: color,
+            highlighted: !!p.highlighted,
+            neighbourhood: p.neighbourhood || '',
+            nearestStationId: p.nearestStationId || '',
+          },
+        };
+      });
+
+    return {
+      type: 'FeatureCollection' as const,
+      features,
+    };
+  }, [pandals]);
 
   // 1. Initialize MapLibre GL Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Kolkata Center: [lng, lat]
     const kolkataCenter: [number, number] = [88.3639, 22.5726];
 
     const map = new maplibregl.Map({
@@ -107,53 +140,39 @@ export function MapLibreMap({
       zoom: 12.5,
       minZoom: 9,
       maxZoom: 19,
-      attributionControl: false, // Custom attribution rendered in UI
+      attributionControl: false,
     });
 
-    // Add navigation controls (zoom + pitch)
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottom-right');
 
     map.on('error', (e) => {
-      console.error('[MapLibre GL Error]', e);
+      console.warn('[MapLibre GL Notice]', e);
     });
 
     map.on('load', () => {
-      setIsMapLoaded(true);
-
-      // Add source & layers for walking route line
+      // A. ROUTE LAYER SOURCES
       map.addSource('route-source', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
+        data: { type: 'FeatureCollection', features: [] },
       });
 
-      // Route underlay glow
       map.addLayer({
         id: 'route-glow-layer',
         type: 'line',
         source: 'route-source',
-        layout: {
-          'line-cap': 'round',
-          'line-join': 'round',
-        },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': '#D4AF37',
           'line-width': 8,
-          'line-opacity': 0.55,
+          'line-opacity': 0.6,
         },
       });
 
-      // Route dashed center line
       map.addLayer({
         id: 'route-line-layer',
         type: 'line',
         source: 'route-source',
-        layout: {
-          'line-cap': 'round',
-          'line-join': 'round',
-        },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': '#C92A2A',
           'line-width': 4,
@@ -162,13 +181,10 @@ export function MapLibreMap({
         },
       });
 
-      // User location accuracy circle source & layers
+      // B. USER LOCATION SOURCES
       map.addSource('user-accuracy-source', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
+        data: { type: 'FeatureCollection', features: [] },
       });
 
       map.addLayer({
@@ -191,6 +207,195 @@ export function MapLibreMap({
           'line-opacity': 0.6,
         },
       });
+
+      // C. PANDALS CLUSTERED GEOJSON SOURCE
+      map.addSource('pandals-source', {
+        type: 'geojson',
+        data: pandalsGeoJson,
+        cluster: true,
+        clusterMaxZoom: 13,
+        clusterRadius: 50,
+      });
+
+      // 1. Cluster circles
+      map.addLayer({
+        id: 'pandals-clusters-halo',
+        type: 'circle',
+        source: 'pandals-source',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#FFFFFF',
+          'circle-radius': [
+            'step',
+            ['get', 'point_count'],
+            20,
+            8,
+            24,
+            20,
+            30,
+          ],
+          'circle-opacity': 0.9,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': 'rgba(0,0,0,0.12)',
+        },
+      });
+
+      map.addLayer({
+        id: 'pandals-clusters',
+        type: 'circle',
+        source: 'pandals-source',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': [
+            'step',
+            ['get', 'point_count'],
+            '#6B1322', // Maroon for small clusters
+            8,
+            '#C92A2A', // Vermilion for medium clusters
+            20,
+            '#B45309', // Gold/amber for large clusters
+          ],
+          'circle-radius': [
+            'step',
+            ['get', 'point_count'],
+            17,
+            8,
+            21,
+            20,
+            27,
+          ],
+          'circle-stroke-width': 2.5,
+          'circle-stroke-color': '#FFFFFF',
+        },
+      });
+
+      // 2. Cluster text counts
+      map.addLayer({
+        id: 'pandals-cluster-count',
+        type: 'symbol',
+        source: 'pandals-source',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': '{point_count_abbreviated}',
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 13,
+        },
+        paint: {
+          'text-color': '#FFFFFF',
+        },
+      });
+
+      // 3. Unclustered pandal halo (high contrast outer outline)
+      map.addLayer({
+        id: 'unclustered-halo',
+        type: 'circle',
+        source: 'pandals-source',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': ['case', ['get', 'highlighted'], 14, 10],
+          'circle-color': '#FFFFFF',
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': 'rgba(36, 29, 23, 0.3)',
+        },
+      });
+
+      // 4. Unclustered pandal circle (category color)
+      map.addLayer({
+        id: 'unclustered-point',
+        type: 'circle',
+        source: 'pandals-source',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': ['case', ['get', 'highlighted'], 11, 8],
+          'circle-color': ['get', 'categoryColor'],
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#FFFFFF',
+        },
+      });
+
+      // 5. Star symbol on featured pandals
+      map.addLayer({
+        id: 'unclustered-star-symbol',
+        type: 'symbol',
+        source: 'pandals-source',
+        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'highlighted'], true]],
+        layout: {
+          'text-field': '★',
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 11,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#FFFFFF',
+        },
+      });
+
+      // 6. Touch hit-box layer (44x44px touch targets on mobile)
+      map.addLayer({
+        id: 'unclustered-touch-hitbox',
+        type: 'circle',
+        source: 'pandals-source',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-radius': 22,
+          'circle-opacity': 0,
+        },
+      });
+
+      // D. SELECTED PANDAL HIGHLIGHT PULSE LAYER
+      map.addSource('selected-pandal-source', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'selected-pandal-pulse-ring',
+        type: 'circle',
+        source: 'selected-pandal-source',
+        paint: {
+          'circle-radius': 22,
+          'circle-color': 'rgba(212, 175, 55, 0.25)',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#D4AF37',
+        },
+      });
+
+      // Event: Cluster click zooms in smoothly
+      map.on('click', 'pandals-clusters', async (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['pandals-clusters'] });
+        const clusterId = features[0]?.properties?.cluster_id;
+        if (clusterId == null) return;
+        const source = map.getSource('pandals-source') as maplibregl.GeoJSONSource;
+        const zoom = await source.getClusterExpansionZoom(clusterId);
+        const coords = (features[0].geometry as any).coordinates;
+        map.easeTo({
+          center: coords,
+          zoom: zoom + 0.5,
+          duration: 650,
+        });
+      });
+
+      // Event: Unclustered pandal click
+      map.on('click', 'unclustered-touch-hitbox', (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-touch-hitbox'] });
+        if (!features.length) return;
+        const props = features[0].properties;
+        const found = pandals.find((p) => p.id === props.id);
+        if (found) {
+          onSelectPandal(found);
+        }
+      });
+
+      // Cursor pointer on hover
+      const setPointer = () => (map.getCanvas().style.cursor = 'pointer');
+      const resetCursor = () => (map.getCanvas().style.cursor = '');
+      map.on('mouseenter', 'pandals-clusters', setPointer);
+      map.on('mouseleave', 'pandals-clusters', resetCursor);
+      map.on('mouseenter', 'unclustered-touch-hitbox', setPointer);
+      map.on('mouseleave', 'unclustered-touch-hitbox', resetCursor);
+
+      setIsMapLoaded(true);
     });
 
     mapRef.current = map;
@@ -202,7 +407,103 @@ export function MapLibreMap({
     };
   }, [mapStyleUrl]);
 
-  // Resize map when window or container size changes
+  // Update Pandals GeoJSON data without tearing down map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapLoaded) return;
+
+    const source = map.getSource('pandals-source') as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(pandalsGeoJson);
+    }
+
+    // Toggle layer visibility
+    const visibility = showPandals ? 'visible' : 'none';
+    [
+      'pandals-clusters-halo',
+      'pandals-clusters',
+      'pandals-cluster-count',
+      'unclustered-halo',
+      'unclustered-point',
+      'unclustered-star-symbol',
+      'unclustered-touch-hitbox',
+    ].forEach((layerId) => {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', visibility);
+      }
+    });
+  }, [pandalsGeoJson, showPandals, isMapLoaded]);
+
+  // Update Selected Pandal Highlight
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapLoaded) return;
+
+    const source = map.getSource('selected-pandal-source') as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (selectedPandal && Number.isFinite(selectedPandal.lat) && Number.isFinite(selectedPandal.lng)) {
+      source.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [selectedPandal.lng!, selectedPandal.lat!],
+            },
+            properties: { id: selectedPandal.id },
+          },
+        ],
+      });
+
+      // Open concise MapLibre Popup
+      if (activePopupRef.current) {
+        activePopupRef.current.remove();
+      }
+
+      const st = selectedPandal.nearestStationId
+        ? METRO_STATIONS_BY_ID[selectedPandal.nearestStationId]
+        : null;
+      const catMeta = CATEGORY_STYLES[selectedPandal.category] || DEFAULT_CATEGORY_STYLE;
+
+      const popupHtml = `
+        <div class="kpn-popup-content">
+          <div class="kpn-popup-pandal-title">
+            <strong>${selectedPandal.name}</strong>
+            ${selectedPandal.bengaliName ? `<small class="kpn-popup-bengali">${selectedPandal.bengaliName}</small>` : ''}
+          </div>
+          <div class="kpn-popup-tags">
+            <span class="kpn-popup-cat" style="background:${catMeta.bgSoft}; color:${catMeta.color}; border:1px solid ${catMeta.border};">
+              ${catMeta.icon} ${catMeta.symbolText}
+            </span>
+            <span class="kpn-popup-area">${selectedPandal.neighbourhood}</span>
+          </div>
+          ${
+            st
+              ? `<div class="kpn-popup-walk">
+                  <span>🚇 ${st.name} Metro</span>
+                  <span>(${selectedPandal.walkingDistanceMeters || 450}m)</span>
+                </div>`
+              : ''
+          }
+        </div>
+      `;
+
+      activePopupRef.current = new maplibregl.Popup({ offset: [0, -18], closeButton: true })
+        .setLngLat([selectedPandal.lng!, selectedPandal.lat!])
+        .setHTML(popupHtml)
+        .addTo(map);
+    } else {
+      source.setData({ type: 'FeatureCollection', features: [] });
+      if (activePopupRef.current) {
+        activePopupRef.current.remove();
+        activePopupRef.current = null;
+      }
+    }
+  }, [selectedPandal, isMapLoaded]);
+
+  // Resize observer
   useEffect(() => {
     const handleResize = () => {
       if (mapRef.current) {
@@ -210,115 +511,29 @@ export function MapLibreMap({
       }
     };
     window.addEventListener('resize', handleResize);
-    const timer = setTimeout(handleResize, 300);
+    const timer = setTimeout(handleResize, 250);
     return () => {
       window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
     };
   }, [selectedPandal]);
 
-  // 2. Camera flyTo handler
+  // FlyTo Handler
   useEffect(() => {
     if (!mapRef.current || !flyToTarget) return;
     mapRef.current.flyTo({
       center: [flyToTarget.lng, flyToTarget.lat],
       zoom: flyToTarget.zoom || 15.5,
       essential: true,
-      duration: 1200,
+      duration: 1100,
     });
   }, [flyToTarget]);
 
-  // 3. Render Pandal Markers
+  // Render Metro Station Markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapLoaded) return;
 
-    // Remove existing pandal markers
-    pandalMarkersRef.current.forEach((m) => m.remove());
-    pandalMarkersRef.current = [];
-
-    if (!showPandals) return;
-
-    const mapped = pandals.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-
-    mapped.forEach((pandal) => {
-      const isSelected = selectedPandal?.id === pandal.id;
-      const station = pandal.nearestStationId
-        ? METRO_STATIONS_BY_ID[pandal.nearestStationId]
-        : null;
-
-      const isTraditional = pandal.category === 'Traditional';
-      const isRajbari = pandal.category === 'Heritage Rajbari';
-      const badgeColor = isRajbari ? '#9B2226' : isTraditional ? '#C92A2A' : '#D9480F';
-
-      // Custom HTML Marker Element
-      const el = document.createElement('div');
-      el.className = `kpn-marker-pandal ${isSelected ? 'is-selected' : ''}`;
-      el.style.setProperty('--badge-color', badgeColor);
-      el.innerHTML = `
-        <div class="kpn-pandal-pin">
-          <span class="kpn-pin-symbol">✦</span>
-        </div>
-        <div class="kpn-pin-shadow"></div>
-      `;
-
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onSelectPandal(pandal);
-      });
-
-      // Popup
-      const popupHtml = `
-        <div class="kpn-popup-content">
-          <div class="kpn-popup-pandal-title">
-            <strong>${pandal.name}</strong>
-            ${pandal.bengaliName ? `<small class="kpn-popup-bengali">${pandal.bengaliName}</small>` : ''}
-          </div>
-          <div class="kpn-popup-tags">
-            <span class="kpn-popup-cat">${pandal.category}</span>
-            <span class="kpn-popup-area">${pandal.neighbourhood}</span>
-          </div>
-          ${
-            station
-              ? `<div class="kpn-popup-walk">
-                  <span>🚇 Nearest: ${station.name}</span>
-                  ${
-                    pandal.walkingDistanceMeters
-                      ? `<span>(${
-                          pandal.walkingDistanceMeters < 1000
-                            ? `${pandal.walkingDistanceMeters}m`
-                            : `${(pandal.walkingDistanceMeters / 1000).toFixed(1)}km`
-                        })</span>`
-                      : ''
-                  }
-                </div>`
-              : ''
-          }
-        </div>
-      `;
-
-      const popup = new maplibregl.Popup({ offset: [0, -32], closeButton: false }).setHTML(
-        popupHtml
-      );
-
-      const marker = new maplibregl.Marker({
-        element: el,
-        anchor: 'bottom',
-      })
-        .setLngLat([pandal.lng!, pandal.lat!])
-        .setPopup(popup)
-        .addTo(map);
-
-      pandalMarkersRef.current.push(marker);
-    });
-  }, [pandals, selectedPandal, showPandals, isMapLoaded, onSelectPandal]);
-
-  // 4. Render Metro Station Markers
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !isMapLoaded) return;
-
-    // Clean old metro markers
     metroMarkersRef.current.forEach((m) => m.remove());
     metroMarkersRef.current = [];
 
@@ -338,7 +553,10 @@ export function MapLibreMap({
       const el = document.createElement('div');
       el.className = `kpn-marker-metro ${isSelected ? 'is-selected' : ''}`;
       el.style.setProperty('--line-color', color);
-      el.innerHTML = `<span class="kpn-metro-badge">M</span>`;
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', `${station.name} Metro Station`);
+      el.innerHTML = `<span class="kpn-metro-badge">${station.interchange ? '⇄' : 'M'}</span>`;
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -352,11 +570,11 @@ export function MapLibreMap({
             <strong>${station.name} Metro</strong>
           </div>
           ${station.bengaliName ? `<small class="kpn-popup-bengali">${station.bengaliName}</small>` : ''}
-          <p class="kpn-popup-sub">${station.line} · ${station.zone} Zone</p>
+          <p class="kpn-popup-sub">${station.line} · ${station.zone} Zone ${station.interchange ? '· Interchange Hub' : ''}</p>
         </div>
       `;
 
-      const popup = new maplibregl.Popup({ offset: [0, -18], closeButton: false }).setHTML(
+      const popup = new maplibregl.Popup({ offset: [0, -16], closeButton: false }).setHTML(
         popupHtml
       );
 
@@ -372,16 +590,14 @@ export function MapLibreMap({
     });
   }, [metroStations, selectedStationId, showMetro, isMapLoaded, onSelectStation]);
 
-  // 5. Update Walking Route Polyline & Waypoint Markers
+  // Route Polyline & Waypoints
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapLoaded) return;
 
-    // Update GeoJSON Route Line Source
     const source = map.getSource('route-source') as maplibregl.GeoJSONSource | undefined;
     if (source) {
       if (showRoute && routeResult && routeResult.coordinates.length > 1) {
-        // Convert [lat, lng] to GeoJSON [lng, lat]
         const lineCoords = routeResult.coordinates.map(([lat, lng]) => [lng, lat]);
         source.setData({
           type: 'FeatureCollection',
@@ -397,14 +613,11 @@ export function MapLibreMap({
           ],
         });
       } else {
-        source.setData({
-          type: 'FeatureCollection',
-          features: [],
-        });
+        source.setData({ type: 'FeatureCollection', features: [] });
       }
     }
 
-    // Waypoint Markers
+    // Waypoints
     waypointMarkersRef.current.forEach((m) => m.remove());
     waypointMarkersRef.current = [];
 
@@ -432,21 +645,66 @@ export function MapLibreMap({
     }
   }, [routeResult, routeStops, showRoute, isMapLoaded]);
 
-  // 6. User GPS Location Marker & Accuracy Circle
+  // User GPS Geolocation
+  const handleLocateMe = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation not supported by this browser.');
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setUserLocation({ lat: latitude, lng: longitude, accuracy });
+        setIsLocating(false);
+
+        if (mapRef.current) {
+          mapRef.current.flyTo({
+            center: [longitude, latitude],
+            zoom: 15,
+            essential: true,
+          });
+
+          // Check nearby pandals within 1.5km
+          let count = 0;
+          pandals.forEach((p) => {
+            if (p.lat && p.lng) {
+              const dLat = (p.lat - latitude) * 111.32;
+              const dLng = (p.lng - longitude) * 111.32 * Math.cos((latitude * Math.PI) / 180);
+              const distKm = Math.sqrt(dLat * dLat + dLng * dLng);
+              if (distKm <= 1.5) count++;
+            }
+          });
+
+          if (onNearbyFound) {
+            onNearbyFound(count);
+          }
+        }
+      },
+      (err) => {
+        setIsLocating(false);
+        setLocationError(err.message || 'Could not acquire GPS position.');
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }, [pandals, onNearbyFound]);
+
+  // User Location Marker & Accuracy Circle
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapLoaded) return;
 
-    // Clear old user marker
     userMarkerRef.current.forEach((m) => m.remove());
     userMarkerRef.current = [];
 
-    const accuracySource = map.getSource(
-      'user-accuracy-source'
-    ) as maplibregl.GeoJSONSource | undefined;
+    const accuracySource = map.getSource('user-accuracy-source') as
+      | maplibregl.GeoJSONSource
+      | undefined;
 
     if (userLocation) {
-      // Create accuracy polygon
       if (accuracySource) {
         const circle = createGeoJsonCircle(
           [userLocation.lng, userLocation.lat],
@@ -458,13 +716,9 @@ export function MapLibreMap({
         });
       }
 
-      // Create animated pulsing blue dot marker
       const el = document.createElement('div');
       el.className = 'kpn-user-location-marker';
-      el.innerHTML = `
-        <div class="kpn-user-dot"></div>
-        <div class="kpn-user-pulse"></div>
-      `;
+      el.innerHTML = '<div class="kpn-user-pulse"></div><div class="kpn-user-dot"></div>';
 
       const marker = new maplibregl.Marker({
         element: el,
@@ -474,220 +728,177 @@ export function MapLibreMap({
         .addTo(map);
 
       userMarkerRef.current.push(marker);
-    } else {
-      if (accuracySource) {
-        accuracySource.setData({
-          type: 'FeatureCollection',
-          features: [],
-        });
-      }
+    } else if (accuracySource) {
+      accuracySource.setData({ type: 'FeatureCollection', features: [] });
     }
   }, [userLocation, isMapLoaded]);
 
-  // 7. Locate Me Click Handler
-  const handleLocateMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocationError('Geolocation is not supported by your browser.');
-      return;
-    }
-
-    setIsLocating(true);
-    setLocationError(null);
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setIsLocating(false);
-        const { latitude, longitude, accuracy } = position.coords;
-        const newLoc = { lat: latitude, lng: longitude, accuracy };
-        setUserLocation(newLoc);
-
-        if (mapRef.current) {
-          mapRef.current.flyTo({
-            center: [longitude, latitude],
-            zoom: 15.5,
-            duration: 1200,
-            essential: true,
-          });
-        }
-
-        // Count nearby pandals within 1.5 km
-        const nearby = pandals.filter((p) => {
-          if (!p.lat || !p.lng) return false;
-          const dLat = (p.lat - latitude) * 111.32;
-          const dLng = (p.lng - longitude) * 110.57 * Math.cos((latitude * Math.PI) / 180);
-          return Math.sqrt(dLat * dLat + dLng * dLng) <= 1.5;
-        });
-
-        if (onNearbyFound) {
-          onNearbyFound(nearby.length);
-        }
-      },
-      (error) => {
-        setIsLocating(false);
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            setLocationError('Location permission was denied. Please allow GPS access in browser.');
-            break;
-          case error.POSITION_UNAVAILABLE:
-            setLocationError('GPS signal unavailable. Please ensure location services are enabled.');
-            break;
-          case error.TIMEOUT:
-            setLocationError('Location request timed out. Please try again.');
-            break;
-          default:
-            setLocationError('Could not determine current location.');
-            break;
-        }
-        setTimeout(() => setLocationError(null), 5000);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
-  }, [pandals, onNearbyFound]);
-
-  // 8. Reset to Kolkata Center
-  const handleResetView = useCallback(() => {
-    if (!mapRef.current) return;
-    mapRef.current.flyTo({
-      center: [88.3639, 22.5726],
-      zoom: 12.5,
-      pitch: 0,
-      bearing: 0,
-      duration: 1000,
-    });
-  }, []);
-
   return (
-    <div className="kpn-map-wrapper">
-      {/* Top Floating Controls & Layer Toggles */}
+    <div className="kpn-maplibre-container" role="region" aria-label="Interactive Durga Puja Vector Map">
+      <div ref={mapContainerRef} className="kpn-map-canvas" />
+
+      {/* Floating Map Controls Top Bar */}
       <div className="kpn-map-floating-bar">
         <div className="kpn-map-stat-chip">
           <span className="kpn-stat-dot" />
-          <span>
-            {pandals.filter((p) => Number.isFinite(p.lat)).length} OpenStreetMap Pins
-          </span>
+          <span>{pandals.length} OpenStreetMap Pins</span>
         </div>
 
         <div className="kpn-layer-toggles">
           <button
+            type="button"
             className={`kpn-layer-btn ${showPandals ? 'active' : ''}`}
             onClick={() => onToggleLayer('pandals')}
-            title="Toggle pandal pins"
+            aria-label="Toggle pandals layer"
           >
             ✦ Pandals
           </button>
           <button
+            type="button"
             className={`kpn-layer-btn ${showMetro ? 'active' : ''}`}
             onClick={() => onToggleLayer('metro')}
-            title="Toggle Metro station pins"
+            aria-label="Toggle metro stations layer"
           >
-            M Metro Stops
+            Ⓜ Metro
           </button>
-          {routeResult && (
+          {routeStops.length > 0 && (
             <button
+              type="button"
               className={`kpn-layer-btn ${showRoute ? 'active' : ''}`}
               onClick={() => onToggleLayer('route')}
-              title="Toggle pedestrian route line"
+              aria-label="Toggle route polyline"
             >
-              〰 Route Line
+              Route
             </button>
           )}
         </div>
       </div>
 
-      {/* Floating Locate Me and Reset Controls */}
+      {/* Floating Action Buttons */}
       <div className="kpn-map-floating-actions">
         <button
-          className={`kpn-map-action-btn ${isLocating ? 'is-loading' : ''} ${
-            userLocation ? 'is-active' : ''
-          }`}
+          type="button"
+          className={`kpn-btn-map-control ${isLocating ? 'is-loading' : ''}`}
           onClick={handleLocateMe}
-          title="Locate Me (Show my real position & nearby pandals)"
-          aria-label="Locate Me"
+          title="Locate me on map (GPS)"
+          aria-label="Locate me on map"
         >
-          {isLocating ? (
-            <span className="kpn-spinner" />
-          ) : (
-            <span className="kpn-crosshair-icon">⌖</span>
-          )}
-          <span className="kpn-action-text">{isLocating ? 'Locating...' : 'Locate Me'}</span>
+          <span>📍</span> Locate Me
         </button>
 
         <button
-          className="kpn-map-action-btn"
-          onClick={handleResetView}
+          type="button"
+          className="kpn-btn-map-control"
+          onClick={() => {
+            if (mapRef.current) {
+              mapRef.current.flyTo({
+                center: [88.3639, 22.5726],
+                zoom: 12.5,
+                duration: 900,
+              });
+            }
+          }}
           title="Reset map view to central Kolkata"
-          aria-label="Reset Map View"
+          aria-label="Reset map view"
         >
-          <span>↺</span>
-          <span className="kpn-action-text">Reset View</span>
+          ↺ Reset View
         </button>
 
         {/* Style Selector */}
-        <select
-          value={mapStyleUrl}
-          onChange={(e) => setMapStyleUrl(e.target.value)}
-          className="kpn-style-selector"
-          aria-label="Select vector map style"
-        >
-          <option value="https://tiles.openfreemap.org/styles/liberty">Liberty Style</option>
-          <option value="https://tiles.openfreemap.org/styles/bright">Bright Style</option>
-          <option value="https://tiles.openfreemap.org/styles/positron">Positron (Light)</option>
-        </select>
+        <div className="kpn-style-selector-wrap">
+          <select
+            value={mapStyleUrl}
+            onChange={(e) => setMapStyleUrl(e.target.value)}
+            className="kpn-map-style-select"
+            aria-label="Select Map Style"
+          >
+            <option value="https://tiles.openfreemap.org/styles/liberty">Liberty Style</option>
+            <option value="https://tiles.openfreemap.org/styles/bright">Bright Style</option>
+            <option value="https://tiles.openfreemap.org/styles/positron">Positron Style</option>
+          </select>
+        </div>
       </div>
 
-      {/* Location Error Toast */}
+      {/* Collapsible Interactive Map Legend */}
+      <div className={`kpn-map-legend-box ${isLegendOpen ? 'is-open' : ''}`}>
+        <button
+          type="button"
+          className="kpn-legend-toggle-btn"
+          onClick={() => setIsLegendOpen(!isLegendOpen)}
+          aria-label="Toggle map marker category legend"
+          aria-expanded={isLegendOpen}
+        >
+          <span>🗺️ Map Legend</span>
+          <span className="kpn-legend-arrow">{isLegendOpen ? '▼' : '▲'}</span>
+        </button>
+
+        {isLegendOpen && (
+          <div className="kpn-legend-dropdown-content">
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch featured">★</span>
+              <div>
+                <strong>Famous & Featured Puja</strong>
+                <small>High contrast star · Kolkata Landmark</small>
+              </div>
+            </div>
+
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch" style={{ backgroundColor: CATEGORY_STYLES['Traditional'].color }}>
+                🪔
+              </span>
+              <div>
+                <strong>Traditional Sabeki</strong>
+                <small>Warm saffron · Heritage Ekchala & Daker Saaj</small>
+              </div>
+            </div>
+
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch" style={{ backgroundColor: CATEGORY_STYLES['Theme'].color }}>
+                🎨
+              </span>
+              <div>
+                <strong>Artistic Theme Puja</strong>
+                <small>Violet/indigo · Concept & Rural Handicraft</small>
+              </div>
+            </div>
+
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch" style={{ backgroundColor: CATEGORY_STYLES['Heritage Rajbari'].color }}>
+                🏛
+              </span>
+              <div>
+                <strong>Heritage Rajbari / Bonedi</strong>
+                <small>Antique bronze · Aristocratic Courtyards</small>
+              </div>
+            </div>
+
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch metro">M</span>
+              <div>
+                <strong>Kolkata Metro Station</strong>
+                <small>Transit hubs with smart gate exit guide</small>
+              </div>
+            </div>
+
+            <div className="kpn-legend-entry">
+              <span className="kpn-legend-swatch cluster">12</span>
+              <div>
+                <strong>Clustered Pujas (Tap to zoom)</strong>
+                <small>Grouped markers at broad zoom levels</small>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {locationError && (
-        <div className="kpn-location-error-toast" role="alert">
+        <div className="kpn-map-toast-error" role="alert">
           <span>⚠️ {locationError}</span>
-          <button onClick={() => setLocationError(null)}>×</button>
+          <button type="button" onClick={() => setLocationError(null)}>
+            ✕
+          </button>
         </div>
       )}
-
-      {/* MapLibre WebGL Canvas Container */}
-      <div ref={mapContainerRef} className="kpn-maplibre-container" />
-
-      {/* Floating Bottom Left Legend */}
-      <div className="kpn-map-legend">
-        <div className="kpn-legend-item">
-          <span className="kpn-legend-pandal-icon">✦</span>
-          <span>Durga Pandal</span>
-        </div>
-        <div className="kpn-legend-item">
-          <span className="kpn-legend-metro-icon">M</span>
-          <span>Metro Station</span>
-        </div>
-        {userLocation && (
-          <div className="kpn-legend-item">
-            <span className="kpn-legend-user-dot" />
-            <span>My Location</span>
-          </div>
-        )}
-        {routeResult && (
-          <div className="kpn-legend-item">
-            <span className="kpn-legend-route-line" />
-            <span>Walking Route</span>
-          </div>
-        )}
-      </div>
-
-      {/* Documented OpenFreeMap & OpenStreetMap Attribution */}
-      <div className="kpn-map-attribution">
-        <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">
-          OpenFreeMap
-        </a>
-        <span>·</span>
-        <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener noreferrer">
-          © OpenMapTiles
-        </a>
-        <span>·</span>
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
-          © OpenStreetMap contributors
-        </a>
-      </div>
     </div>
   );
 }

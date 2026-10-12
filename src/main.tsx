@@ -4,6 +4,7 @@ import './style.css';
 
 import { Pandal, FilterState, RouteStop, RouteResult } from './types';
 import { METRO_STATIONS, METRO_STATIONS_BY_ID } from './data/metroStations';
+import { ARTISTIC_STYLES } from './data/categoryMeta';
 import {
   loadAllPandals,
   saveCustomPandals,
@@ -31,6 +32,7 @@ const DEFAULT_FILTERS: FilterState = {
   selectedStation: 'all',
   selectedZone: 'all',
   selectedCategory: 'all',
+  selectedStyle: 'all',
   maxDistanceMeters: 0,
   onlyVerified: false,
 };
@@ -50,7 +52,6 @@ export function App() {
   // 3. User Saved & Hopping Planner State
   const [favorites, setFavorites] = useState<string[]>(() => {
     const saved = loadSavedFavorites();
-    // Default to at least 4 saved favorites if empty, matching the reference screenshots
     if (saved.length === 0) {
       return ['bagbazar-sarbojanin', 'tridhara-sammilani', 'santosh-mitra-square', 'ekdalia-evergreen'];
     }
@@ -60,7 +61,6 @@ export function App() {
   const [plannerStops, setPlannerStops] = useState<RouteStop[]>(() => {
     const saved = loadSavedItinerary();
     if (saved.length === 0) {
-      // Default to 4-5 initial stops if empty to match the design screenshot
       return [
         {
           id: 'station-kalighat',
@@ -129,7 +129,34 @@ export function App() {
     saveItinerary(plannerStops);
   }, [plannerStops]);
 
-  // Keyboard shortcut Ctrl+K
+  // Automatic Route Recalculation when stops change
+  useEffect(() => {
+    if (plannerStops.length >= 2) {
+      let isCancelled = false;
+      setIsLoadingRoute(true);
+      getPedestrianRoute(plannerStops)
+        .then((res) => {
+          if (!isCancelled) {
+            setRouteResult(res);
+            setIsLoadingRoute(false);
+          }
+        })
+        .catch((err) => {
+          if (!isCancelled) {
+            console.warn('Auto route recalculation notice:', err);
+            setIsLoadingRoute(false);
+          }
+        });
+
+      return () => {
+        isCancelled = true;
+      };
+    } else {
+      setRouteResult(null);
+    }
+  }, [plannerStops]);
+
+  // Keyboard shortcut Ctrl+K / Cmd+K for search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -142,52 +169,75 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Filter and Search logic
+  // Filter and Search logic (cooperative multi-filter system)
   const filteredPandals = useMemo(() => {
     return pandals.filter((p) => {
+      // 1. Search Query
       if (filters.searchQuery.trim()) {
         const q = filters.searchQuery.toLowerCase().trim();
         const nameMatch = p.name.toLowerCase().includes(q);
         const bengaliMatch = p.bengaliName ? p.bengaliName.includes(q) : false;
         const areaMatch = p.neighbourhood.toLowerCase().includes(q);
+        const themeMatch = p.theme ? p.theme.toLowerCase().includes(q) : false;
+        const knownMatch = p.knownFor ? p.knownFor.toLowerCase().includes(q) : false;
         const station = p.nearestStationId ? METRO_STATIONS_BY_ID[p.nearestStationId] : null;
         const stationMatch = station ? station.name.toLowerCase().includes(q) : false;
 
-        if (!nameMatch && !bengaliMatch && !areaMatch && !stationMatch) {
+        if (!nameMatch && !bengaliMatch && !areaMatch && !themeMatch && !knownMatch && !stationMatch) {
           return false;
         }
       }
 
+      // 2. Line Filter
       if (filters.selectedLine !== 'all') {
         const station = p.nearestStationId ? METRO_STATIONS_BY_ID[p.nearestStationId] : null;
-        if (!station || station.lineCode !== filters.selectedLine) {
+        const lineMatch = station && station.lineCode === filters.selectedLine;
+        const altMatch = p.alternativeStations?.some((alt) => {
+          const altSt = METRO_STATIONS_BY_ID[alt.stationId];
+          return altSt && altSt.lineCode === filters.selectedLine;
+        });
+        if (!lineMatch && !altMatch) {
           return false;
         }
       }
 
+      // 3. Station Filter
       if (filters.selectedStation !== 'all') {
-        if (p.nearestStationId !== filters.selectedStation) {
-          const hasAlt = p.alternativeStations?.some(
-            (alt) => alt.stationId === filters.selectedStation
-          );
-          if (!hasAlt) return false;
-        }
+        const isNearest = p.nearestStationId === filters.selectedStation;
+        const isAlt = p.alternativeStations?.some(
+          (alt) => alt.stationId === filters.selectedStation
+        );
+        if (!isNearest && !isAlt) return false;
       }
 
+      // 4. Zone Filter
       if (filters.selectedZone !== 'all' && p.zone !== filters.selectedZone) {
         return false;
       }
 
+      // 5. Category Filter
       if (filters.selectedCategory !== 'all' && p.category !== filters.selectedCategory) {
         return false;
       }
 
+      // 6. Artistic Style Filter
+      if (filters.selectedStyle && filters.selectedStyle !== 'all') {
+        const styleMeta = ARTISTIC_STYLES.find((s) => s.id === filters.selectedStyle);
+        if (styleMeta) {
+          const text = `${p.theme || ''} ${p.knownFor || ''} ${p.category} ${p.name}`.toLowerCase();
+          const matchesKeyword = styleMeta.keywords.some((k) => text.includes(k));
+          if (!matchesKeyword) return false;
+        }
+      }
+
+      // 7. Max Distance Filter
       if (filters.maxDistanceMeters > 0) {
         if (!p.walkingDistanceMeters || p.walkingDistanceMeters > filters.maxDistanceMeters) {
           return false;
         }
       }
 
+      // 8. Verified GPS Only Filter
       if (filters.onlyVerified && p.status !== 'verified') {
         return false;
       }
@@ -196,7 +246,12 @@ export function App() {
     });
   }, [pandals, filters]);
 
-  // Handle selecting a pandal
+  // Featured / Famous Pandals
+  const featuredPandals = useMemo(() => {
+    return pandals.filter((p) => p.highlighted);
+  }, [pandals]);
+
+  // Handle selecting a pandal (preserves search and filter state)
   const handleSelectPandal = useCallback((pandal: Pandal) => {
     setSelectedPandal(pandal);
     if (Number.isFinite(pandal.lat) && Number.isFinite(pandal.lng)) {
@@ -219,6 +274,22 @@ export function App() {
     }
   }, []);
 
+  // Handle selecting a route stop (centers map on that stop)
+  const handleSelectRouteStop = useCallback(
+    (stop: RouteStop) => {
+      if (Number.isFinite(stop.lat) && Number.isFinite(stop.lng)) {
+        setFlyToTarget({ lat: stop.lat, lng: stop.lng, zoom: 16.5 });
+      }
+      if (stop.type === 'pandal') {
+        const found = pandals.find((p) => p.id === stop.id);
+        if (found) {
+          setSelectedPandal(found);
+        }
+      }
+    },
+    [pandals]
+  );
+
   // Toggle favorite
   const handleToggleFavorite = useCallback((pandalId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -227,7 +298,7 @@ export function App() {
     );
   }, []);
 
-  // Toggle pandal in planner
+  // Toggle pandal in planner (prevents duplicates)
   const handleTogglePlannerPandal = useCallback((pandal: Pandal, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!Number.isFinite(pandal.lat) || !Number.isFinite(pandal.lng)) {
@@ -321,26 +392,6 @@ export function App() {
     });
   }, []);
 
-  // Calculate route
-  const handleCalculateRoute = useCallback(async () => {
-    if (plannerStops.length < 2) return;
-    setIsLoadingRoute(true);
-    try {
-      const result = await getPedestrianRoute(plannerStops);
-      setRouteResult(result);
-      setShowRoute(true);
-
-      if (result.coordinates.length > 0) {
-        const mid = result.coordinates[Math.floor(result.coordinates.length / 2)];
-        setFlyToTarget({ lat: mid[0], lng: mid[1], zoom: 14.5 });
-      }
-    } catch (err) {
-      console.error('Routing calculation failed:', err);
-    } finally {
-      setIsLoadingRoute(false);
-    }
-  }, [plannerStops]);
-
   // Geolocation trigger
   const handleLocateMe = useCallback(() => {
     if (!navigator.geolocation) {
@@ -355,7 +406,6 @@ export function App() {
         const { latitude, longitude } = pos.coords;
         setFlyToTarget({ lat: latitude, lng: longitude, zoom: 16 });
 
-        // Count pandals within 1.5 km
         let count = 0;
         pandals.forEach((p) => {
           if (p.lat && p.lng) {
@@ -431,6 +481,7 @@ export function App() {
               <ExploreSheet
                 pandals={filteredPandals}
                 allPandalsCount={pandals.length}
+                featuredPandals={featuredPandals}
                 selectedPandal={selectedPandal}
                 plannerStops={plannerStops}
                 favorites={favorites}
@@ -449,6 +500,29 @@ export function App() {
             </div>
           )}
 
+          {activeTab === 'routes' && (
+            <div className="kpn-desktop-sidebar-only">
+              <RoutePlanner
+                stops={plannerStops}
+                onUpdateStops={(newStops) => setPlannerStops(newStops)}
+                routeResult={routeResult}
+                isLoadingRoute={isLoadingRoute}
+                onRequestCalculateRoute={() => {}}
+                onClearRoute={() => {
+                  setPlannerStops([]);
+                  setRouteResult(null);
+                }}
+                allPandals={pandals}
+                onSelectPandalById={(id) => {
+                  const found = pandals.find((p) => p.id === id);
+                  if (found) handleSelectPandal(found);
+                }}
+                onSelectStop={handleSelectRouteStop}
+                isMobileSheet={false}
+              />
+            </div>
+          )}
+
           {activeTab === 'metro' && (
             <div className="kpn-tab-scroll-pane">
               <MetroStationList
@@ -463,27 +537,6 @@ export function App() {
                   });
                 }}
                 onSelectPandal={(p) => handleSelectPandal(p)}
-              />
-            </div>
-          )}
-
-          {activeTab === 'routes' && (
-            <div className="kpn-tab-scroll-pane">
-              <RoutePlanner
-                stops={plannerStops}
-                onUpdateStops={(newStops) => setPlannerStops(newStops)}
-                routeResult={routeResult}
-                isLoadingRoute={isLoadingRoute}
-                onRequestCalculateRoute={handleCalculateRoute}
-                onClearRoute={() => {
-                  setPlannerStops([]);
-                  setRouteResult(null);
-                }}
-                allPandals={pandals}
-                onSelectPandalById={(id) => {
-                  const found = pandals.find((p) => p.id === id);
-                  if (found) handleSelectPandal(found);
-                }}
               />
             </div>
           )}
@@ -507,7 +560,11 @@ export function App() {
         </div>
 
         {/* CENTER INTERACTIVE VECTOR MAP */}
-        <div className={`kpn-map-wrapper ${activeTab !== 'explore' ? 'kpn-map-secondary' : ''}`}>
+        <div
+          className={`kpn-map-wrapper ${
+            activeTab === 'metro' || activeTab === 'saved' ? 'kpn-map-secondary' : ''
+          }`}
+        >
           <MapLibreMap
             pandals={filteredPandals}
             metroStations={METRO_STATIONS}
@@ -542,6 +599,7 @@ export function App() {
               <ExploreSheet
                 pandals={filteredPandals}
                 allPandalsCount={pandals.length}
+                featuredPandals={featuredPandals}
                 selectedPandal={selectedPandal}
                 plannerStops={plannerStops}
                 favorites={favorites}
@@ -556,6 +614,30 @@ export function App() {
                     handleSelectPandal(filteredPandals[0]);
                   }
                 }}
+              />
+            </div>
+          )}
+
+          {/* MOBILE DRAGGABLE BOTTOM SHEET FOR ROUTES TAB */}
+          {activeTab === 'routes' && (
+            <div className="kpn-mobile-route-sheet-wrap">
+              <RoutePlanner
+                stops={plannerStops}
+                onUpdateStops={(newStops) => setPlannerStops(newStops)}
+                routeResult={routeResult}
+                isLoadingRoute={isLoadingRoute}
+                onRequestCalculateRoute={() => {}}
+                onClearRoute={() => {
+                  setPlannerStops([]);
+                  setRouteResult(null);
+                }}
+                allPandals={pandals}
+                onSelectPandalById={(id) => {
+                  const found = pandals.find((p) => p.id === id);
+                  if (found) handleSelectPandal(found);
+                }}
+                onSelectStop={handleSelectRouteStop}
+                isMobileSheet={true}
               />
             </div>
           )}
@@ -599,7 +681,7 @@ export function App() {
         onClose={() => setIsAdminModalOpen(false)}
         pandals={pandals}
         onSavePandals={handleSavePandals}
-        onResetDefault={handleResetDefaults}
+        onResetDefaults={handleResetDefaults}
       />
     </div>
   );
@@ -607,9 +689,5 @@ export function App() {
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  createRoot(rootElement).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
+  createRoot(rootElement).render(<App />);
 }

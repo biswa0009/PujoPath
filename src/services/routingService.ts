@@ -61,7 +61,12 @@ export function optimizeRouteOrder(stops: RouteStop[]): RouteStop[] {
 /**
  * Fetch pedestrian route from OSRM foot routing API with fallback
  */
-export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResult> {
+export async function getPedestrianRoute(rawStops: RouteStop[]): Promise<RouteResult> {
+  // 1. Sanitize and validate stops
+  const stops = rawStops.filter(
+    (s) => Number.isFinite(s.lat) && Number.isFinite(s.lng) && s.lat !== 0 && s.lng !== 0
+  );
+
   if (stops.length < 2) {
     return {
       coordinates: stops.map((s) => [s.lat, s.lng]),
@@ -78,7 +83,7 @@ export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResul
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 6500); // 6.5s timeout
 
     const res = await fetch(osrmUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
@@ -87,7 +92,7 @@ export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResul
       const data = await res.json();
       if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
         const route = data.routes[0];
-        // OSRM returns GeoJSON coordinates as [lng, lat], convert to [lat, lng] for Leaflet
+        // OSRM returns GeoJSON coordinates as [lng, lat], convert to [lat, lng] for internal format
         const coordinates: [number, number][] = route.geometry.coordinates.map(
           ([lng, lat]: [number, number]) => [lat, lng]
         );
@@ -108,7 +113,7 @@ export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResul
             fromName,
             toName,
             distanceMeters: Math.round(leg.distance),
-            timeMinutes: Math.round(leg.duration / 60) || 1,
+            timeMinutes: Math.max(1, Math.round(leg.duration / 60)),
             instructions: instructions.length > 0 ? instructions : [`Walk towards ${toName}`],
           };
         });
@@ -118,7 +123,7 @@ export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResul
         return {
           coordinates,
           totalDistanceMeters: Math.round(route.distance),
-          totalTimeMinutes: Math.round(route.duration / 60) || 1,
+          totalTimeMinutes: Math.max(1, Math.round(route.duration / 60)),
           legs,
           metroTransferAdvice,
           source: 'osrm',
@@ -126,15 +131,15 @@ export async function getPedestrianRoute(stops: RouteStop[]): Promise<RouteResul
       }
     }
   } catch (err) {
-    console.warn('OSRM pedestrian route fetch failed, using realistic fallback:', err);
+    console.warn('OSRM pedestrian route fetch failed or timed out, using honest approximate route:', err);
   }
 
-  // Realistic Fallback: Haversine distance with 1.25x street grid winding factor
+  // Honest Fallback: Straight-line distance with 1.25x street grid detour factor
   return createFallbackRoute(stops);
 }
 
 /**
- * Creates fallback route with realistic walking distance and Metro transfer hints
+ * Creates honest approximate route without fabricating turn-by-turn instructions
  */
 function createFallbackRoute(stops: RouteStop[]): RouteResult {
   const coordinates: [number, number][] = [];
@@ -146,12 +151,11 @@ function createFallbackRoute(stops: RouteStop[]): RouteResult {
     const s2 = stops[i + 1];
 
     const straightDist = calculateHaversineDistance(s1.lat, s1.lng, s2.lat, s2.lng);
-    const walkDist = Math.round(straightDist * 1.25); // 25% urban road detour factor
-    const walkTimeMin = Math.max(1, Math.round(walkDist / 75)); // 75m/min (~4.5 km/h)
+    const approxWalkDist = Math.round(straightDist * 1.25); // 25% urban road winding estimate
+    const approxWalkTimeMin = Math.max(1, Math.round(approxWalkDist / 75)); // 75m/min (~4.5 km/h)
 
-    totalDistance += walkDist;
+    totalDistance += approxWalkDist;
 
-    // Add intermediate interpolated points for smoother curve
     coordinates.push([s1.lat, s1.lng]);
     const midLat = (s1.lat + s2.lat) / 2;
     const midLng = (s1.lng + s2.lng) / 2;
@@ -160,12 +164,11 @@ function createFallbackRoute(stops: RouteStop[]): RouteResult {
     legs.push({
       fromName: s1.name,
       toName: s2.name,
-      distanceMeters: walkDist,
-      timeMinutes: walkTimeMin,
+      distanceMeters: approxWalkDist,
+      timeMinutes: approxWalkTimeMin,
       instructions: [
-        `Walk east/west from ${s1.name}`,
-        `Continue along neighborhood arterial street (~${walkDist} m)`,
-        `Arrive at ${s2.name}`,
+        `Direct pedestrian corridor link (~${approxWalkDist} m, est. ${approxWalkTimeMin} min walking)`,
+        `Follow local signage toward ${s2.name} (live road turn-by-turn routing unavailable)`
       ],
     });
   }
