@@ -1,5 +1,5 @@
 import React from 'react';
-import { SearchIcon, CloseIcon, CrosshairIcon, UserIcon, CompassIcon, MetroIcon, RouteIcon, BookmarkIcon } from './Icons';
+import { SearchIcon, CloseIcon, CrosshairIcon, UserIcon, CompassIcon, NightPlanIcon, MetroIcon, RouteIcon, BookmarkIcon } from './Icons';
 import { MainNavTab } from './BottomNav';
 
 interface HeaderProps {
@@ -8,6 +8,7 @@ interface HeaderProps {
   activeTab: MainNavTab;
   onTabChange: (tab: MainNavTab) => void;
   plannerCount: number;
+  nightPlanCount?: number;
   totalPandals: number;
   visibleCount: number;
   onLocateMe: () => void;
@@ -21,6 +22,7 @@ export function Header({
   activeTab,
   onTabChange,
   plannerCount,
+  nightPlanCount = 0,
   totalPandals,
   visibleCount,
   onLocateMe,
@@ -103,6 +105,7 @@ export function Header({
         {/* Desktop-only Navigation Tabs (for wide screens) */}
         <nav className="kpn-desktop-nav" aria-label="Desktop Navigation">
           <button
+            type="button"
             className={`kpn-desktop-tab ${activeTab === 'explore' ? 'is-active' : ''}`}
             onClick={() => onTabChange('explore')}
           >
@@ -110,6 +113,16 @@ export function Header({
             <span>Explore</span>
           </button>
           <button
+            type="button"
+            className={`kpn-desktop-tab ${activeTab === 'plan-night' ? 'is-active' : ''}`}
+            onClick={() => onTabChange('plan-night')}
+          >
+            <NightPlanIcon size={16} />
+            <span>Plan Night</span>
+            {nightPlanCount > 0 && <span className="kpn-badge-tiny">{nightPlanCount}</span>}
+          </button>
+          <button
+            type="button"
             className={`kpn-desktop-tab ${activeTab === 'metro' ? 'is-active' : ''}`}
             onClick={() => onTabChange('metro')}
           >
@@ -117,6 +130,7 @@ export function Header({
             <span>Metro</span>
           </button>
           <button
+            type="button"
             className={`kpn-desktop-tab ${activeTab === 'routes' ? 'is-active' : ''}`}
             onClick={() => onTabChange('routes')}
           >
@@ -125,6 +139,7 @@ export function Header({
             {plannerCount > 0 && <span className="kpn-badge-tiny">{plannerCount}</span>}
           </button>
           <button
+            type="button"
             className={`kpn-desktop-tab ${activeTab === 'saved' ? 'is-active' : ''}`}
             onClick={() => onTabChange('saved')}
           >
@@ -136,3 +151,4 @@ export function Header({
     </header>
   );
 }
+

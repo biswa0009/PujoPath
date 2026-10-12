@@ -1,9 +1,36 @@
-import { Pandal, RouteStop } from '../types';
+import { Pandal, RouteStop, NightPlan } from '../types';
 import { PANDALS_DATA } from '../data/pandals';
 
 const ITINERARY_KEY = 'kolkata_puja_itinerary_v1';
 const FAVORITES_KEY = 'kolkata_puja_favorites_v1';
 const CUSTOM_PANDALS_KEY = 'kolkata_puja_custom_pandals_v1';
+const NIGHT_PLAN_KEY = 'kolkata_puja_night_plan_v1';
+
+export function loadSavedNightPlan(): NightPlan | null {
+  try {
+    const raw = localStorage.getItem(NIGHT_PLAN_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load night plan from storage:', e);
+  }
+  return null;
+}
+
+export function saveNightPlan(plan: NightPlan): void {
+  try {
+    localStorage.setItem(NIGHT_PLAN_KEY, JSON.stringify(plan));
+  } catch (e) {
+    console.error('Failed to save night plan to storage:', e);
+  }
+}
+
+export function clearSavedNightPlan(): void {
+  try {
+    localStorage.removeItem(NIGHT_PLAN_KEY);
+  } catch (e) {
+    console.error('Failed to clear night plan from storage:', e);
+  }
+}
 
 export function loadSavedItinerary(): RouteStop[] {
   try {
@@ -72,3 +99,4 @@ export function resetPandalsToDefault(): Pandal[] {
   }
   return PANDALS_DATA;
 }
+

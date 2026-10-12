@@ -590,3 +590,111 @@ export function TempleIcon({ className = '', size = 15, style }: IconProps) {
   );
 }
 
+export function NightPlanIcon({ className = '', size = 20, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      {/* Crescent moon + route constellation */}
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+      />
+      {/* Route waypoints inside night */}
+      <circle cx="8" cy="14" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="16" r="1.5" fill="currentColor" stroke="none" />
+      <path strokeLinecap="round" strokeDasharray="1.5 2" strokeWidth={1.4} d="M8 14l6 2" />
+      {/* Little sparkle star */}
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M17 5v2m0 2v-2m-2 0h2m2 0h-2"
+      />
+    </svg>
+  );
+}
+
+export function MoonIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+      />
+    </svg>
+  );
+}
+
+export function GripVerticalIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="9" cy="5" r="1.5" fill="currentColor" />
+      <circle cx="9" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="9" cy="19" r="1.5" fill="currentColor" />
+      <circle cx="15" cy="5" r="1.5" fill="currentColor" />
+      <circle cx="15" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="15" cy="19" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SwapIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4" />
+    </svg>
+  );
+}
+
+export function CheckCircleIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+

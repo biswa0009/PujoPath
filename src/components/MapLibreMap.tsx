@@ -20,7 +20,9 @@ interface MapLibreMapProps {
   onToggleLayer: (layer: 'pandals' | 'metro' | 'route') => void;
   flyToTarget: { lat: number; lng: number; zoom?: number } | null;
   onNearbyFound?: (count: number) => void;
+  onSelectRouteStop?: (stop: RouteStop) => void;
 }
+
 
 // MapLibre Web Worker URL
 if (maplibregl.config) {
@@ -72,6 +74,7 @@ export function MapLibreMap({
   onToggleLayer,
   flyToTarget,
   onNearbyFound,
+  onSelectRouteStop,
 }: MapLibreMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -638,26 +641,62 @@ export function MapLibreMap({
     if (showRoute && routeStops.length > 0) {
       routeStops.forEach((stop, idx) => {
         const isStart = idx === 0;
-        const isEnd = idx === routeStops.length - 1;
-        const label = isStart ? 'A' : isEnd ? 'B' : `${idx + 1}`;
-        const bg = isStart ? '#00875A' : isEnd ? '#C92A2A' : '#D4AF37';
+        const label = isStart ? 'Start' : `${idx}`;
+        const bg = isStart ? '#00875A' : '#C92A2A';
 
         const el = document.createElement('div');
-        el.className = 'kpn-waypoint-marker';
+        el.className = `kpn-waypoint-marker ${isStart ? 'is-start' : 'is-stop'}`;
         el.style.backgroundColor = bg;
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('role', 'button');
+        el.setAttribute('aria-label', `Stop ${label}: ${stop.name}`);
         el.innerHTML = `<span>${label}</span>`;
+
+        const foundPandal = stop.type === 'pandal' ? pandals.find((p) => p.id === stop.id) : null;
+        const catMeta = foundPandal ? CATEGORY_STYLES[foundPandal.category] || DEFAULT_CATEGORY_STYLE : null;
+
+        const popupHtml = `
+          <div class="kpn-popup-content">
+            <div class="kpn-popup-header">
+              <span class="kpn-popup-badge-small" style="background:${bg}; color:#fff;">${label}</span>
+              <strong>${stop.name}</strong>
+            </div>
+            ${stop.bengaliName ? `<small class="kpn-popup-bengali">${stop.bengaliName}</small>` : ''}
+            ${
+              catMeta
+                ? `<div class="kpn-popup-tags"><span class="kpn-popup-cat" style="background:${catMeta.bgSoft}; color:${catMeta.color}; border:1px solid ${catMeta.border};">${catMeta.icon} ${foundPandal?.category}</span></div>`
+                : ''
+            }
+            ${stop.note ? `<p class="kpn-popup-sub">${stop.note}</p>` : ''}
+            <div class="kpn-popup-actions-row">
+              <a href="https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=walking" target="_blank" rel="noopener noreferrer" class="kpn-popup-btn-nav">
+                🧭 Directions
+              </a>
+            </div>
+          </div>
+        `;
+
+        const popup = new maplibregl.Popup({ offset: [0, -18], closeButton: true }).setHTML(popupHtml);
 
         const marker = new maplibregl.Marker({
           element: el,
           anchor: 'center',
         })
           .setLngLat([stop.lng, stop.lat])
+          .setPopup(popup)
           .addTo(map);
+
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          map.flyTo({ center: [stop.lng, stop.lat], zoom: 16, essential: true });
+          if (onSelectRouteStop) onSelectRouteStop(stop);
+          if (foundPandal) onSelectPandal(foundPandal);
+        });
 
         waypointMarkersRef.current.push(marker);
       });
     }
-  }, [routeResult, routeStops, showRoute, isMapLoaded]);
+  }, [routeResult, routeStops, showRoute, isMapLoaded, pandals, onSelectPandal, onSelectRouteStop]);
 
   // User GPS Geolocation
   const handleLocateMe = useCallback(() => {
@@ -747,6 +786,34 @@ export function MapLibreMap({
     }
   }, [userLocation, isMapLoaded]);
 
+  // Fit bounds to entire route when stops exist
+  const handleFitRouteBounds = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || routeStops.length < 2) return;
+
+    let minLng = Infinity,
+      minLat = Infinity,
+      maxLng = -Infinity,
+      maxLat = -Infinity;
+
+    routeStops.forEach((s) => {
+      if (s.lng < minLng) minLng = s.lng;
+      if (s.lat < minLat) minLat = s.lat;
+      if (s.lng > maxLng) maxLng = s.lng;
+      if (s.lat > maxLat) maxLat = s.lat;
+    });
+
+    if (minLng !== Infinity && maxLng !== -Infinity) {
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: { top: 80, bottom: 90, left: 70, right: 70 }, duration: 900 }
+      );
+    }
+  }, [routeStops]);
+
   return (
     <div className="kpn-maplibre-container" role="region" aria-label="Interactive Durga Puja Vector Map">
       <div ref={mapContainerRef} className="kpn-map-canvas" />
@@ -800,6 +867,19 @@ export function MapLibreMap({
           <span style={{ fontSize: 13 }}>📍</span>
           <span>Locate Me</span>
         </button>
+
+        {routeStops.length >= 2 && (
+          <button
+            type="button"
+            className="kpn-map-action-btn highlight-route"
+            onClick={handleFitRouteBounds}
+            title="Fit entire night route within map screen"
+            aria-label="Fit route to map"
+          >
+            <span>🗺️</span>
+            <span>Fit Route</span>
+          </button>
+        )}
 
         <button
           type="button"

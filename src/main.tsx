@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 
-import { Pandal, FilterState, RouteStop, RouteResult } from './types';
+import { Pandal, FilterState, RouteStop, RouteResult, NightPlan } from './types';
 import { METRO_STATIONS, METRO_STATIONS_BY_ID } from './data/metroStations';
 import { ARTISTIC_STYLES } from './data/categoryMeta';
 import {
@@ -13,6 +13,7 @@ import {
   saveItinerary,
   loadSavedFavorites,
   saveFavorites,
+  loadSavedNightPlan,
 } from './services/storageService';
 import { getPedestrianRoute } from './services/routingService';
 
@@ -22,6 +23,7 @@ import { ExploreSheet } from './components/ExploreSheet';
 import { PandalDetails } from './components/PandalDetails';
 import { MetroStationList } from './components/MetroStationList';
 import { RoutePlanner } from './components/RoutePlanner';
+import { NightPlanner } from './components/NightPlanner';
 import { SavedPandalsView } from './components/SavedPandalsView';
 import { AdminModal } from './components/AdminModal';
 import { MapLibreMap } from './components/MapLibreMap';
@@ -41,7 +43,16 @@ export function App() {
   // 1. Core Data State
   const [pandals, setPandals] = useState<Pandal[]>(() => loadAllPandals());
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [activeTab, setActiveTab] = useState<MainNavTab>('explore');
+  const [activeTab, setActiveTab] = useState<MainNavTab>(() => {
+    const hash = window.location.hash.replace('#', '') as MainNavTab;
+    if (['explore', 'plan-night', 'metro', 'routes', 'saved'].includes(hash)) {
+      return hash;
+    }
+    return 'explore';
+  });
+
+  // Night Planner State (loaded from storage)
+  const [nightPlan, setNightPlan] = useState<NightPlan | null>(() => loadSavedNightPlan());
 
   // 2. Selection & Navigation
   const [selectedPandal, setSelectedPandal] = useState<Pandal | null>(null);
@@ -155,6 +166,49 @@ export function App() {
       setRouteResult(null);
     }
   }, [plannerStops]);
+
+  // Browser History & URL Hash Synchronization for native Back Button support
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as MainNavTab;
+      if (['explore', 'plan-night', 'metro', 'routes', 'saved'].includes(hash)) {
+        setActiveTab(hash);
+      }
+    };
+    window.addEventListener('popstate', handleHashChange);
+    return () => window.removeEventListener('popstate', handleHashChange);
+  }, []);
+
+  const handleTabChange = useCallback((tab: MainNavTab) => {
+    setActiveTab(tab);
+    setSelectedPandal(null);
+    if (window.location.hash.replace('#', '') !== tab) {
+      window.history.pushState(null, '', `#${tab}`);
+    }
+  }, []);
+
+  // Compute active map route stops & result (syncing Night Planner with map)
+  const nightPlanRouteStops = useMemo<RouteStop[]>(() => {
+    if (!nightPlan || !nightPlan.stops) return [];
+    return nightPlan.stops.map((s, idx) => ({
+      id: s.id,
+      type: s.type === 'start' ? (nightPlan.startPoint.type === 'metro-station' ? 'station' : 'custom') : 'pandal',
+      name: s.name,
+      bengaliName: s.bengaliName,
+      lat: s.lat,
+      lng: s.lng,
+      stationId: s.pandal?.nearestStationId || (idx === 0 ? nightPlan.startPoint.stationId : undefined),
+      note: s.matchReason,
+    }));
+  }, [nightPlan]);
+
+  const activeMapRouteStops =
+    activeTab === 'plan-night' && nightPlan && nightPlanRouteStops.length > 0
+      ? nightPlanRouteStops
+      : plannerStops;
+
+  const activeMapRouteResult =
+    activeTab === 'plan-night' && nightPlan ? nightPlan.routeResult : routeResult;
 
   // Keyboard shortcut Ctrl+K / Cmd+K for search
   useEffect(() => {
@@ -450,11 +504,9 @@ export function App() {
         searchQuery={filters.searchQuery}
         onSearchChange={(q) => setFilters((prev) => ({ ...prev, searchQuery: q }))}
         activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          setSelectedPandal(null);
-        }}
+        onTabChange={handleTabChange}
         plannerCount={plannerStops.length}
+        nightPlanCount={nightPlan ? nightPlan.totalStops : 0}
         totalPandals={pandals.length}
         visibleCount={filteredPandals.length}
         onLocateMe={handleLocateMe}
@@ -496,6 +548,28 @@ export function App() {
                     handleSelectPandal(filteredPandals[0]);
                   }
                 }}
+              />
+            </div>
+          )}
+
+          {activeTab === 'plan-night' && (
+            <div className="kpn-desktop-sidebar-only">
+              <NightPlanner
+                allPandals={pandals}
+                currentNightPlan={nightPlan}
+                onUpdateNightPlan={(p) => setNightPlan(p)}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+                onSelectStop={(stop) => {
+                  if (Number.isFinite(stop.lat) && Number.isFinite(stop.lng)) {
+                    setFlyToTarget({ lat: stop.lat, lng: stop.lng, zoom: 16.5 });
+                  }
+                }}
+                onViewOnMap={() => {
+                  if (nightPlan?.stops[0]) {
+                    setFlyToTarget({ lat: nightPlan.stops[0].lat, lng: nightPlan.stops[0].lng, zoom: 15.5 });
+                  }
+                }}
+                isMobileSheet={false}
               />
             </div>
           )}
@@ -572,8 +646,8 @@ export function App() {
             onSelectPandal={(p) => handleSelectPandal(p)}
             selectedStationId={filters.selectedStation}
             onSelectStation={(stId) => handleSelectStation(stId)}
-            routeResult={routeResult}
-            routeStops={plannerStops}
+            routeResult={activeMapRouteResult}
+            routeStops={activeMapRouteStops}
             showPandals={showPandals}
             showMetro={showMetro}
             showRoute={showRoute}
@@ -583,6 +657,7 @@ export function App() {
               if (layer === 'route') setShowRoute(!showRoute);
             }}
             flyToTarget={flyToTarget}
+            onSelectRouteStop={handleSelectRouteStop}
             onNearbyFound={(count) => {
               setNearbyBanner(
                 count > 0
@@ -614,6 +689,29 @@ export function App() {
                     handleSelectPandal(filteredPandals[0]);
                   }
                 }}
+              />
+            </div>
+          )}
+
+          {/* MOBILE DRAGGABLE BOTTOM SHEET FOR PLAN NIGHT TAB */}
+          {activeTab === 'plan-night' && (
+            <div className="kpn-mobile-route-sheet-wrap">
+              <NightPlanner
+                allPandals={pandals}
+                currentNightPlan={nightPlan}
+                onUpdateNightPlan={(p) => setNightPlan(p)}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+                onSelectStop={(stop) => {
+                  if (Number.isFinite(stop.lat) && Number.isFinite(stop.lng)) {
+                    setFlyToTarget({ lat: stop.lat, lng: stop.lng, zoom: 16.5 });
+                  }
+                }}
+                onViewOnMap={() => {
+                  if (nightPlan?.stops[0]) {
+                    setFlyToTarget({ lat: nightPlan.stops[0].lat, lng: nightPlan.stops[0].lng, zoom: 15.5 });
+                  }
+                }}
+                isMobileSheet={true}
               />
             </div>
           )}
@@ -667,12 +765,10 @@ export function App() {
       {/* 3. FIXED BOTTOM NAVIGATION BAR FOR MOBILE SCREENS */}
       <BottomNav
         activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          setSelectedPandal(null);
-        }}
+        onTabChange={handleTabChange}
         savedCount={favorites.length}
         routesCount={plannerStops.length}
+        nightPlanCount={nightPlan ? nightPlan.totalStops : 0}
       />
 
       {/* 4. ADMIN & DATA MODAL */}
