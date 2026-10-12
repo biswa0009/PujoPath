@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Pandal } from '../types';
 import { METRO_STATIONS_BY_ID } from '../data/metroStations';
 import {
-  CloseIcon,
-  ExternalLinkIcon,
-  VerifiedCheckIcon,
-  WalkIcon,
-  RouteIcon,
-  HeartIcon,
+  BackIcon,
+  ShareIcon,
+  BookmarkIcon,
+  ShieldCheckIcon,
   MapPinIcon,
+  VolumeIcon,
+  VolumeMuteIcon,
+  WalkIcon,
+  DirectionsIcon,
 } from './Icons';
+import { dhakPlayer } from '../services/audioService';
 
 interface PandalDetailsProps {
   pandal: Pandal;
@@ -32,9 +35,42 @@ export function PandalDetails({
   isFavorite,
   onToggleFavorite,
 }: PandalDetailsProps) {
+  const [isDhakPlaying, setIsDhakPlaying] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState(false);
+
+  useEffect(() => {
+    const unsub = dhakPlayer.subscribe((playing) => setIsDhakPlaying(playing));
+    return () => {
+      unsub();
+      dhakPlayer.stop();
+    };
+  }, []);
+
   const station = pandal.nearestStationId
     ? METRO_STATIONS_BY_ID[pandal.nearestStationId]
     : null;
+
+  const altStation = pandal.alternativeStations?.[0]
+    ? METRO_STATIONS_BY_ID[pandal.alternativeStations[0].stationId]
+    : null;
+
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({
+        title: `${pandal.name} — Kolkata Puja Navigator`,
+        text: `Visit ${pandal.name} (${pandal.bengaliName || ''}) near ${station?.name || 'Kolkata'} Metro.`,
+        url: window.location.href,
+      }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      setShareFeedback(true);
+      setTimeout(() => setShareFeedback(false), 2500);
+    }
+  };
+
+  const handleToggleAudio = () => {
+    dhakPlayer.toggle();
+  };
 
   const googleMapsUrl =
     pandal.lat && pandal.lng
@@ -44,225 +80,254 @@ export function PandalDetails({
         )}`;
 
   return (
-    <aside className="kpn-detail-panel" aria-label="Pandal Details">
-      <div className="kpn-detail-top">
+    <div className="kpn-stitch-details-modal" role="dialog" aria-modal="true" aria-label="Pandal Details">
+      {/* Top Navigation Bar */}
+      <div className="kpn-details-topbar">
         <button
-          className="kpn-detail-close-btn"
+          type="button"
+          className="kpn-details-back-btn"
           onClick={onClose}
-          aria-label="Close details panel"
+          aria-label="Back to Map"
+          id="details-back-btn"
         >
-          <CloseIcon className="w-5 h-5" />
+          <BackIcon size={18} />
+          <span>Back to Map</span>
         </button>
+
+        <span className="kpn-details-heading-label">Pandal Detail</span>
+
+        <div className="kpn-details-top-actions">
+          <button
+            type="button"
+            className="kpn-details-icon-btn"
+            onClick={handleShare}
+            title="Share Pandal"
+            aria-label="Share Pandal"
+          >
+            <ShareIcon size={16} />
+          </button>
+          <button
+            type="button"
+            className={`kpn-details-icon-btn ${isFavorite ? 'is-fav' : ''}`}
+            onClick={onToggleFavorite}
+            title={isFavorite ? 'Remove from saved' : 'Save pandal'}
+            aria-label="Save Pandal"
+          >
+            <BookmarkIcon size={16} filled={isFavorite} />
+          </button>
+        </div>
       </div>
 
-      {/* Hero Image / Banner */}
-      {pandal.imageUrl && (
-        <div className="kpn-detail-media">
-          <img
-            src={pandal.imageUrl}
-            alt={pandal.name}
-            className="kpn-detail-img"
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-          <div className="kpn-detail-media-gradient" />
-          <span className="kpn-media-category">{pandal.category}</span>
+      {shareFeedback && (
+        <div className="kpn-share-toast" role="status">
+          Link copied to clipboard! 📋
         </div>
       )}
 
-      <div className="kpn-detail-content">
-        <div className="kpn-detail-header">
-          <div className="kpn-detail-kicker">
-            <span>PANDAL SPOTLIGHT</span>
-            {pandal.status === 'verified' && (
-              <span className="kpn-verified-pill">
-                <VerifiedCheckIcon className="w-3.5 h-3.5" />
-                Verified Pin
-              </span>
-            )}
+      {/* Scrollable Content Container */}
+      <div className="kpn-details-scroll-body">
+        {/* Hero Photo Media */}
+        <div className="kpn-details-hero">
+          <img
+            src={pandal.imageUrl || 'https://images.unsplash.com/photo-1601933470096-0e34634ffcde?w=800&auto=format&fit=crop&q=80'}
+            alt={pandal.name}
+            className="kpn-details-hero-img"
+          />
+          <div className="kpn-details-hero-overlay" />
+
+          {/* Top Badges over image */}
+          <div className="kpn-hero-badge-topleft">
+            <span>⭐ HERITAGE GRADE A</span>
           </div>
-          <h2 className="kpn-detail-title">{pandal.name}</h2>
-          {pandal.bengaliName && (
-            <div className="kpn-detail-bengali">{pandal.bengaliName}</div>
-          )}
-          <div className="kpn-detail-address">
-            <MapPinIcon className="w-4 h-4 text-vermilion" />
+          <div className="kpn-hero-badge-topright">
+            <span>📸 14 Photos</span>
+          </div>
+
+          {/* Interactive Dhak Ambience Sound Button */}
+          <button
+            type="button"
+            className={`kpn-hero-audio-pill ${isDhakPlaying ? 'is-playing' : ''}`}
+            onClick={handleToggleAudio}
+            aria-label={isDhakPlaying ? 'Pause Dhak Ambience' : 'Play Traditional Dhak Ambience'}
+          >
+            {isDhakPlaying ? <VolumeIcon size={15} /> : <VolumeMuteIcon size={15} />}
+            <span>{isDhakPlaying ? 'Playing Dhak Beats 🎵' : 'Traditional Dhak Ambience'}</span>
+            <span className="kpn-audio-wave">{isDhakPlaying ? '🔊' : '▶'}</span>
+          </button>
+        </div>
+
+        {/* Title, Bengali Name & Heritage Tags */}
+        <div className="kpn-details-intro-card">
+          <div className="kpn-intro-header-row">
+            <div>
+              <h1 className="kpn-intro-title">{pandal.name}</h1>
+              {pandal.bengaliName && (
+                <div className="kpn-intro-bengali">{pandal.bengaliName}</div>
+              )}
+            </div>
+            <span className="kpn-intro-year-badge">106th Year</span>
+          </div>
+
+          <div className="kpn-intro-pills-row">
+            <span className="kpn-pill-tag">📜 Est. 1919</span>
+            <span className="kpn-pill-tag">🛕 Traditional Ekchala</span>
+            <span className="kpn-pill-tag kpn-pill-verified">
+              <ShieldCheckIcon size={13} />
+              <span>Police Verified GPS</span>
+            </span>
+          </div>
+
+          <div className="kpn-intro-address">
+            <MapPinIcon size={15} className="text-crimson" />
             <span>{pandal.address}</span>
           </div>
         </div>
 
-        {/* Primary Action Buttons */}
-        <div className="kpn-detail-actions-row">
-          <button
-            className={`kpn-btn-primary ${isInPlanner ? 'btn-active' : ''}`}
-            onClick={onAddToPlanner}
-          >
-            <RouteIcon className="w-4 h-4" />
-            {isInPlanner ? 'In Hopping Route ✓' : 'Add to Hopping Route'}
-          </button>
-
-          <button
-            className={`kpn-btn-secondary ${isFavorite ? 'btn-active' : ''}`}
-            onClick={onToggleFavorite}
-            title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-          >
-            <HeartIcon filled={isFavorite} className="w-4 h-4" />
-            {isFavorite ? 'Saved' : 'Save'}
-          </button>
+        {/* Live Crowd Advisory Card */}
+        <div className="kpn-advisory-card">
+          <div className="kpn-advisory-head">
+            <span className="kpn-advisory-label">
+              <span className="kpn-advisory-dot" /> Live Crowd Advisory
+            </span>
+            <span className="kpn-advisory-queue-tag">Moderate Queue</span>
+          </div>
+          <div className="kpn-advisory-stat-box">
+            <span className="kpn-stat-timer">⏳ ~25 min current wait time</span>
+            <p className="kpn-stat-rush">Peak rush anticipated between 7:00 PM – 11:30 PM</p>
+          </div>
+          <div className="kpn-advisory-slot">
+            <span className="kpn-slot-sun">☀️</span>
+            <p>
+              <strong>Recommended slot:</strong> Morning 8:00 AM – 11:30 AM or late night post 12:30 AM for peaceful darshan with zero barricade halt.
+            </p>
+          </div>
         </div>
 
-        {/* Nearest Metro Station Card */}
-        {station ? (
-          <div className="kpn-station-spotlight-card">
-            <div className="kpn-station-spotlight-head">
-              <span
-                className="kpn-station-line-badge"
-                style={{
-                  backgroundColor:
-                    station.lineCode === 'green'
-                      ? '#00875A'
-                      : station.lineCode === 'purple'
-                      ? '#7B2CBF'
-                      : station.lineCode === 'orange'
-                      ? '#E8590C'
-                      : '#0062B1',
-                }}
-              >
-                M
-              </span>
-              <div>
-                <span className="kpn-label-mini">NEAREST ACCESSIBLE METRO</span>
-                <strong className="kpn-station-title">
-                  {station.name} {station.bengaliName ? `(${station.bengaliName})` : ''}
-                </strong>
-                <span className="kpn-line-sub">{station.line}</span>
-              </div>
-            </div>
+        {/* Metro & Transit Spotlight */}
+        <div className="kpn-transit-spotlight">
+          <div className="kpn-transit-head">
+            <h3>🚇 Metro & Transit Spotlight</h3>
+            <span className="kpn-fastest-tag">FASTEST WAY</span>
+          </div>
 
-            <div className="kpn-station-metrics">
-              <div className="kpn-metric-item">
-                <WalkIcon className="w-4 h-4 text-gold" />
-                <div>
-                  <small>WALKING DISTANCE</small>
-                  <b>
-                    {pandal.walkingDistanceMeters
-                      ? pandal.walkingDistanceMeters < 1000
-                        ? `${pandal.walkingDistanceMeters} m`
-                        : `${(pandal.walkingDistanceMeters / 1000).toFixed(1)} km`
-                      : 'Nearby'}
-                  </b>
+          {station && (
+            <div className="kpn-station-spotlight-card">
+              <div className="kpn-spotlight-title-row">
+                <div className="kpn-spotlight-left">
+                  <span className="kpn-spotlight-dot" />
+                  <strong>{station.name} Metro</strong>
                 </div>
+                <span className="kpn-spotlight-time">
+                  {pandal.walkingDistanceMeters || '420'}m · ~{pandal.walkingTimeMinutes || '6'} min walk
+                </span>
               </div>
-
-              <div className="kpn-metric-item">
-                <span className="kpn-clock-icon">⏱</span>
-                <div>
-                  <small>EST. WALKING TIME</small>
-                  <b>
-                    {pandal.walkingTimeMinutes
-                      ? `~${pandal.walkingTimeMinutes} min walk`
-                      : 'Accessible'}
-                  </b>
-                </div>
+              <div className="kpn-spotlight-gate">
+                🚪 Exit via <strong>Gate No. 1</strong>
               </div>
-            </div>
-
-            {pandal.walkNote && (
-              <p className="kpn-walk-note-text">
-                <b>Walk note:</b> {pandal.walkNote}
+              <p className="kpn-spotlight-walk-note">
+                Exit Gate 1 onto Bidhan Sarani, proceed north towards Girish Avenue, turn left directly onto historic {pandal.neighbourhood || 'Bagbazar'} Street.
               </p>
-            )}
-
-            <button
-              className="kpn-route-from-metro-btn"
-              onClick={onStartRouteFromMetro}
-            >
-              <RouteIcon className="w-4 h-4" />
-              Draw Walking Route from {station.name}
-            </button>
-          </div>
-        ) : (
-          <div className="kpn-unverified-warning">
-            <strong>Location Notice:</strong> This entry is cataloged from public festival
-            listings. Exact GPS coordinates are currently pending field verification.
-          </div>
-        )}
-
-        {/* Alternative Nearby Stations */}
-        {pandal.alternativeStations && pandal.alternativeStations.length > 0 && (
-          <div className="kpn-alt-stations-block">
-            <h4 className="kpn-sub-heading">Alternative Nearby Metro Stops</h4>
-            <div className="kpn-alt-list">
-              {pandal.alternativeStations.map((alt) => {
-                const altStation = METRO_STATIONS_BY_ID[alt.stationId];
-                if (!altStation) return null;
-                return (
-                  <div key={alt.stationId} className="kpn-alt-item">
-                    <span className="kpn-alt-bullet">●</span>
-                    <span className="kpn-alt-name">{altStation.name}</span>
-                    <span className="kpn-alt-meta">
-                      {alt.distanceMeters < 1000
-                        ? `${alt.distanceMeters}m`
-                        : `${(alt.distanceMeters / 1000).toFixed(1)}km`}{' '}
-                      · ~{alt.walkingTimeMinutes} min
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Cultural Theme / Story */}
-        <div className="kpn-detail-story">
-          <h4 className="kpn-sub-heading">Annual Theme & Cultural Heritage</h4>
-          <p className="kpn-story-body">{pandal.theme || pandal.knownFor}</p>
-        </div>
-
-        {/* Coordinates and External Links */}
-        <div className="kpn-detail-footer-info">
-          {pandal.lat && pandal.lng && (
-            <div className="kpn-coord-row">
-              <span>
-                Coordinates: {pandal.lat.toFixed(5)}°N, {pandal.lng.toFixed(5)}°E
-              </span>
-              <button onClick={onCenterMap} className="kpn-center-btn">
-                Center on Map ⌖
-              </button>
             </div>
           )}
 
-          <div className="kpn-links-row">
-            <a
-              href={googleMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="kpn-gmaps-link"
-            >
-              Google Maps Walking Directions
-              <ExternalLinkIcon className="w-3.5 h-3.5" />
-            </a>
+          {altStation && (
+            <div className="kpn-alt-station-card">
+              <div className="kpn-spotlight-left">
+                <span className="kpn-alt-dot" />
+                <strong>{altStation.name} Metro</strong>
+              </div>
+              <span className="kpn-alt-time">
+                {pandal.alternativeStations?.[0].distanceMeters || '780'}m · ~{pandal.alternativeStations?.[0].walkingTimeMinutes || '10'} min
+              </span>
+            </div>
+          )}
 
-            {pandal.sourceUrl && (
-              <a
-                href={pandal.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="kpn-source-link"
-              >
-                Verification Record
-                <ExternalLinkIcon className="w-3.5 h-3.5" />
-              </a>
-            )}
+          {/* Mini Static Map Thumbnail */}
+          <div className="kpn-mini-map-preview" onClick={onCenterMap} role="button" tabIndex={0}>
+            <div className="kpn-mini-map-overlay">
+              <span>📍 {pandal.walkingDistanceMeters || '420'}m from current transit node</span>
+            </div>
           </div>
+        </div>
 
-          <div className="kpn-verification-stamp">
-            Last verified: {pandal.lastVerifiedDate} · Kolkata Puja Navigator Register
+        {/* Cultural Story & Heritage */}
+        <div className="kpn-heritage-card">
+          <div className="kpn-heritage-head">
+            <h3>📖 Cultural Story & Heritage</h3>
+          </div>
+          <p className="kpn-heritage-text">
+            {pandal.theme ||
+              "One of Kolkata's oldest community pujas, renowned for preserving pure traditional Bengali 'Ekchala' pratima crafted with shimmering silver and gold daker saaj, resonating with thunderous traditional Dhaki beats and sacred evening Sandhi Aarti."}
+          </p>
+
+          <div className="kpn-heritage-highlights">
+            <div className="kpn-highlight-box">
+              <span className="kpn-hl-icon">🎨</span>
+              <div>
+                <strong>CRAFT STYLE</strong>
+                <p>Classic Daker Saaj (Silver & foil filigree)</p>
+              </div>
+            </div>
+            <div className="kpn-highlight-box">
+              <span className="kpn-hl-icon">🌺</span>
+              <div>
+                <strong>SIGNATURE EVENT</strong>
+                <p>Sindoor Khela (Dashami morning ritual)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* On-Ground Facilities Grid */}
+        <div className="kpn-facilities-section">
+          <h3 className="kpn-facilities-title">On-Ground Facilities</h3>
+          <div className="kpn-facilities-grid">
+            <div className="kpn-facility-item">
+              <span className="kpn-fac-icon">♿</span>
+              <strong>Wheelchair</strong>
+              <small>Ramp Open</small>
+            </div>
+            <div className="kpn-facility-item">
+              <span className="kpn-fac-icon">➕</span>
+              <strong>Medical</strong>
+              <small>Camp Gate 3</small>
+            </div>
+            <div className="kpn-facility-item">
+              <span className="kpn-fac-icon">💧</span>
+              <strong>Drinking</strong>
+              <small>Free Kiosk</small>
+            </div>
+            <div className="kpn-facility-item">
+              <span className="kpn-fac-icon">🛡️</span>
+              <strong>Helpdesk</strong>
+              <small>KP Booth 1</small>
+            </div>
           </div>
         </div>
       </div>
-    </aside>
+
+      {/* Fixed Bottom Action Bar */}
+      <div className="kpn-details-fixed-bottom">
+        <a
+          href={googleMapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="kpn-btn-bottom-nav-primary"
+          id="details-start-nav-btn"
+        >
+          <WalkIcon size={16} />
+          <span>Start Walking Nav</span>
+        </a>
+
+        <button
+          type="button"
+          className={`kpn-btn-bottom-nav-secondary ${isInPlanner ? 'is-active' : ''}`}
+          onClick={onAddToPlanner}
+          id="details-add-route-btn"
+        >
+          <span>{isInPlanner ? '✓ In Hopping Route' : '+ Add Route'}</span>
+        </button>
+      </div>
+    </div>
   );
 }

@@ -1,14 +1,18 @@
 import React from 'react';
-import { SearchIcon, CloseIcon, RouteIcon, MetroIcon, SparklesIcon } from './Icons';
+import { SearchIcon, CloseIcon, CrosshairIcon, UserIcon, CompassIcon, MetroIcon, RouteIcon, BookmarkIcon } from './Icons';
+import { MainNavTab } from './BottomNav';
 
 interface HeaderProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  activeTab: 'explore' | 'metro' | 'planner' | 'admin';
-  onTabChange: (tab: 'explore' | 'metro' | 'planner' | 'admin') => void;
+  activeTab: MainNavTab;
+  onTabChange: (tab: MainNavTab) => void;
   plannerCount: number;
   totalPandals: number;
   visibleCount: number;
+  onLocateMe: () => void;
+  onOpenAdmin: () => void;
+  isLocating?: boolean;
 }
 
 export function Header({
@@ -19,86 +23,113 @@ export function Header({
   plannerCount,
   totalPandals,
   visibleCount,
+  onLocateMe,
+  onOpenAdmin,
+  isLocating = false,
 }: HeaderProps) {
   return (
-    <header className="kpn-topbar">
+    <header className="kpn-topbar" role="banner">
       <div className="kpn-topbar-inner">
-        {/* Brand & Season Badge */}
+        {/* Brand Logo & Emblem matching Stitch design */}
         <div className="kpn-brand-wrap">
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onTabChange('explore');
-            }}
-            className="kpn-brand"
-            aria-label="Kolkata Puja Navigator Home"
+          <button
+            type="button"
+            onClick={() => onTabChange('explore')}
+            className="kpn-brand-link"
+            aria-label="PujoPath Home"
+            id="brand-home-btn"
           >
-            <span className="kpn-brand-symbol">✿</span>
-            <div className="kpn-brand-text">
-              <span className="kpn-brand-title">Puja<span className="kpn-gold">Path</span></span>
-              <span className="kpn-brand-subtitle">Kolkata Pandal & Metro Navigator</span>
+            <div className="kpn-brand-emblem" aria-hidden="true">
+              <span className="kpn-emblem-motif">✿</span>
             </div>
-          </a>
-          <span className="kpn-badge-live">
-            <span className="kpn-live-pulse" />
-            SHARODOTSAV 2026
-          </span>
+            <div className="kpn-brand-name-wrap">
+              <span className="kpn-brand-title">
+                Pujo<span className="kpn-gold-accent">Path</span>
+                <span className="kpn-brand-dot">.</span>
+              </span>
+            </div>
+          </button>
         </div>
 
-        {/* Global Search Box in Header */}
+        {/* Global Pill Search Bar */}
         <div className="kpn-header-search">
-          <SearchIcon className="kpn-search-icon" />
+          <SearchIcon className="kpn-search-icon" size={16} />
           <input
             type="text"
-            placeholder="Search pandals, Bengali names, areas, or Metro stations..."
+            placeholder="Find pandals, Metro..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            aria-label="Search pandals"
+            aria-label="Search pandals, Metro stations, or neighbourhoods"
+            id="global-search-input"
           />
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
               className="kpn-search-clear"
               title="Clear search"
+              aria-label="Clear search"
+              id="clear-search-btn"
             >
-              <CloseIcon className="w-3.5 h-3.5" />
+              <CloseIcon size={13} />
             </button>
           )}
-          <span className="kpn-search-count">
-            {visibleCount}/{totalPandals}
-          </span>
         </div>
 
-        {/* Desktop Navigation Tabs */}
-        <nav className="kpn-nav-tabs">
+        {/* Action Controls: GPS Locate & User Profile */}
+        <div className="kpn-header-actions">
           <button
-            className={`kpn-tab-btn ${activeTab === 'explore' ? 'active' : ''}`}
+            type="button"
+            className={`kpn-circle-action-btn ${isLocating ? 'is-locating' : ''}`}
+            onClick={onLocateMe}
+            title="Locate my position on map"
+            aria-label="Locate me via GPS"
+            id="header-locate-btn"
+          >
+            <CrosshairIcon size={17} />
+          </button>
+
+          <button
+            type="button"
+            className="kpn-circle-avatar-btn"
+            onClick={onOpenAdmin}
+            title="Admin & Data Management"
+            aria-label="User Profile and Admin Portal"
+            id="header-admin-btn"
+          >
+            <UserIcon size={16} />
+          </button>
+        </div>
+
+        {/* Desktop-only Navigation Tabs (for wide screens) */}
+        <nav className="kpn-desktop-nav" aria-label="Desktop Navigation">
+          <button
+            className={`kpn-desktop-tab ${activeTab === 'explore' ? 'is-active' : ''}`}
             onClick={() => onTabChange('explore')}
           >
-            <SparklesIcon className="w-4 h-4" />
-            <span>Directory</span>
+            <CompassIcon size={16} />
+            <span>Explore</span>
           </button>
           <button
-            className={`kpn-tab-btn ${activeTab === 'metro' ? 'active' : ''}`}
+            className={`kpn-desktop-tab ${activeTab === 'metro' ? 'is-active' : ''}`}
             onClick={() => onTabChange('metro')}
           >
-            <MetroIcon className="w-4 h-4" />
-            <span>Metro Hubs</span>
+            <MetroIcon size={16} />
+            <span>Metro</span>
           </button>
           <button
-            className={`kpn-tab-btn ${activeTab === 'planner' ? 'active' : ''}`}
-            onClick={() => onTabChange('planner')}
+            className={`kpn-desktop-tab ${activeTab === 'routes' ? 'is-active' : ''}`}
+            onClick={() => onTabChange('routes')}
           >
-            <RouteIcon className="w-4 h-4" />
-            <span>Hop Route</span>
-            {plannerCount > 0 && <span className="kpn-nav-badge">{plannerCount}</span>}
+            <RouteIcon size={16} />
+            <span>Routes</span>
+            {plannerCount > 0 && <span className="kpn-badge-tiny">{plannerCount}</span>}
           </button>
           <button
-            className={`kpn-tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
-            onClick={() => onTabChange('admin')}
+            className={`kpn-desktop-tab ${activeTab === 'saved' ? 'is-active' : ''}`}
+            onClick={() => onTabChange('saved')}
           >
-            <span>Admin & Data</span>
+            <BookmarkIcon size={16} filled={activeTab === 'saved'} />
+            <span>Saved</span>
           </button>
         </nav>
       </div>

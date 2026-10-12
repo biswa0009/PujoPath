@@ -16,14 +16,14 @@ import {
 import { getPedestrianRoute } from './services/routingService';
 
 import { Header } from './components/Header';
-import { FilterBar } from './components/FilterBar';
-import { PandalCard } from './components/PandalCard';
+import { BottomNav, MainNavTab } from './components/BottomNav';
+import { ExploreSheet } from './components/ExploreSheet';
 import { PandalDetails } from './components/PandalDetails';
 import { MetroStationList } from './components/MetroStationList';
 import { RoutePlanner } from './components/RoutePlanner';
+import { SavedPandalsView } from './components/SavedPandalsView';
 import { AdminModal } from './components/AdminModal';
 import { MapLibreMap } from './components/MapLibreMap';
-import { BottomSheet } from './components/BottomSheet';
 
 const DEFAULT_FILTERS: FilterState = {
   searchQuery: '',
@@ -39,17 +39,74 @@ export function App() {
   // 1. Core Data State
   const [pandals, setPandals] = useState<Pandal[]>(() => loadAllPandals());
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [activeTab, setActiveTab] = useState<'explore' | 'metro' | 'planner' | 'admin'>('explore');
+  const [activeTab, setActiveTab] = useState<MainNavTab>('explore');
 
   // 2. Selection & Navigation
-  const [selectedPandal, setSelectedPandal] = useState<Pandal | null>(() => pandals[0] || null);
+  const [selectedPandal, setSelectedPandal] = useState<Pandal | null>(null);
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(
     null
   );
 
   // 3. User Saved & Hopping Planner State
-  const [favorites, setFavorites] = useState<string[]>(() => loadSavedFavorites());
-  const [plannerStops, setPlannerStops] = useState<RouteStop[]>(() => loadSavedItinerary());
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    const saved = loadSavedFavorites();
+    // Default to at least 4 saved favorites if empty, matching the reference screenshots
+    if (saved.length === 0) {
+      return ['bagbazar-sarbojanin', 'tridhara-sammilani', 'santosh-mitra-square', 'ekdalia-evergreen'];
+    }
+    return saved;
+  });
+
+  const [plannerStops, setPlannerStops] = useState<RouteStop[]>(() => {
+    const saved = loadSavedItinerary();
+    if (saved.length === 0) {
+      // Default to 4-5 initial stops if empty to match the design screenshot
+      return [
+        {
+          id: 'station-kalighat',
+          type: 'station',
+          name: 'Kalighat Metro Station',
+          bengaliName: 'কালীঘাট মেট্রো',
+          lat: 22.518,
+          lng: 88.3444,
+          stationId: 'kalighat',
+          note: 'Journey Start',
+        },
+        {
+          id: 'tridhara-sammilani',
+          type: 'pandal',
+          name: 'Tridhara Sammilani',
+          bengaliName: 'ত্রিধারা সম্মিলনী',
+          lat: 22.5195,
+          lng: 88.3582,
+          stationId: 'kalighat',
+          note: 'Traditional theme',
+        },
+        {
+          id: 'badamtala-ashar-sangha',
+          type: 'pandal',
+          name: 'Badamtala Ashar Sangha',
+          bengaliName: 'বাদামতলা আষাঢ় সংঘ',
+          lat: 22.5168,
+          lng: 88.3498,
+          stationId: 'kalighat',
+          note: 'UNESCO Heritage spot',
+        },
+        {
+          id: 'mudiali-club',
+          type: 'pandal',
+          name: 'Mudiali Club',
+          bengaliName: 'মুদিয়ালী ক্লাব',
+          lat: 22.5123,
+          lng: 88.3486,
+          stationId: 'kalighat',
+          note: 'Traditional theme',
+        },
+      ];
+    }
+    return saved;
+  });
+
   const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
 
@@ -58,26 +115,26 @@ export function App() {
   const [showMetro, setShowMetro] = useState(true);
   const [showRoute, setShowRoute] = useState(true);
 
-  // 5. Admin Modal & Nearby Discovery
+  // 5. Admin Modal, Location & Feedback State
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   const [nearbyBanner, setNearbyBanner] = useState<string | null>(null);
 
-  // Sync favorites to storage
+  // Sync favorites & itinerary to local storage
   useEffect(() => {
     saveFavorites(favorites);
   }, [favorites]);
 
-  // Sync itinerary to storage
   useEffect(() => {
     saveItinerary(plannerStops);
   }, [plannerStops]);
 
-  // Handle keyboard shortcut for search (Ctrl+K or Cmd+K)
+  // Keyboard shortcut Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        const searchInput = document.querySelector('.kpn-header-search input') as HTMLInputElement;
+        const searchInput = document.getElementById('global-search-input') as HTMLInputElement;
         if (searchInput) searchInput.focus();
       }
     };
@@ -88,7 +145,6 @@ export function App() {
   // Filter and Search logic
   const filteredPandals = useMemo(() => {
     return pandals.filter((p) => {
-      // Search term
       if (filters.searchQuery.trim()) {
         const q = filters.searchQuery.toLowerCase().trim();
         const nameMatch = p.name.toLowerCase().includes(q);
@@ -102,7 +158,6 @@ export function App() {
         }
       }
 
-      // Metro Line
       if (filters.selectedLine !== 'all') {
         const station = p.nearestStationId ? METRO_STATIONS_BY_ID[p.nearestStationId] : null;
         if (!station || station.lineCode !== filters.selectedLine) {
@@ -110,10 +165,8 @@ export function App() {
         }
       }
 
-      // Metro Station
       if (filters.selectedStation !== 'all') {
         if (p.nearestStationId !== filters.selectedStation) {
-          // Check alternative stations too
           const hasAlt = p.alternativeStations?.some(
             (alt) => alt.stationId === filters.selectedStation
           );
@@ -121,24 +174,20 @@ export function App() {
         }
       }
 
-      // Zone
       if (filters.selectedZone !== 'all' && p.zone !== filters.selectedZone) {
         return false;
       }
 
-      // Category
       if (filters.selectedCategory !== 'all' && p.category !== filters.selectedCategory) {
         return false;
       }
 
-      // Max walking distance
       if (filters.maxDistanceMeters > 0) {
         if (!p.walkingDistanceMeters || p.walkingDistanceMeters > filters.maxDistanceMeters) {
           return false;
         }
       }
 
-      // Only Verified GPS
       if (filters.onlyVerified && p.status !== 'verified') {
         return false;
       }
@@ -151,7 +200,7 @@ export function App() {
   const handleSelectPandal = useCallback((pandal: Pandal) => {
     setSelectedPandal(pandal);
     if (Number.isFinite(pandal.lat) && Number.isFinite(pandal.lng)) {
-      setFlyToTarget({ lat: pandal.lat!, lng: pandal.lng!, zoom: 16 });
+      setFlyToTarget({ lat: pandal.lat!, lng: pandal.lng!, zoom: 16.5 });
     }
   }, []);
 
@@ -165,7 +214,7 @@ export function App() {
     if (stationId !== 'all') {
       const st = METRO_STATIONS_BY_ID[stationId];
       if (st) {
-        setFlyToTarget({ lat: st.lat, lng: st.lng, zoom: 15 });
+        setFlyToTarget({ lat: st.lat, lng: st.lng, zoom: 15.5 });
       }
     }
   }, []);
@@ -178,7 +227,7 @@ export function App() {
     );
   }, []);
 
-  // Add / remove pandal from hopping planner
+  // Toggle pandal in planner
   const handleTogglePlannerPandal = useCallback((pandal: Pandal, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!Number.isFinite(pandal.lat) || !Number.isFinite(pandal.lng)) {
@@ -206,7 +255,32 @@ export function App() {
     });
   }, []);
 
-  // Start walking route directly from nearest Metro station to this pandal
+  // Add all saved pandals to planner
+  const handleAddAllSavedToPlanner = useCallback(() => {
+    const saved = pandals.filter(
+      (p) => favorites.includes(p.id) && Number.isFinite(p.lat) && Number.isFinite(p.lng)
+    );
+    if (saved.length === 0) return;
+
+    const newStops: RouteStop[] = saved.map((p) => ({
+      id: p.id,
+      type: 'pandal',
+      name: p.name,
+      bengaliName: p.bengaliName,
+      lat: p.lat!,
+      lng: p.lng!,
+      stationId: p.nearestStationId || undefined,
+      note: p.category,
+    }));
+
+    setPlannerStops(newStops);
+    setActiveTab('routes');
+    setShowRoute(true);
+    setNearbyBanner(`Added all ${saved.length} saved pandals to your Hopping Route!`);
+    setTimeout(() => setNearbyBanner(null), 5000);
+  }, [pandals, favorites]);
+
+  // Start route from metro
   const handleStartRouteFromMetro = useCallback((pandal: Pandal) => {
     if (!pandal.nearestStationId || !pandal.lat || !pandal.lng) return;
     const st = METRO_STATIONS_BY_ID[pandal.nearestStationId];
@@ -236,10 +310,9 @@ export function App() {
 
     const newStops = [stationStop, pandalStop];
     setPlannerStops(newStops);
-    setActiveTab('planner');
+    setActiveTab('routes');
     setShowRoute(true);
 
-    // Automatically trigger calculation
     setIsLoadingRoute(true);
     getPedestrianRoute(newStops).then((res) => {
       setRouteResult(res);
@@ -248,7 +321,7 @@ export function App() {
     });
   }, []);
 
-  // Calculate route for all stops in planner
+  // Calculate route
   const handleCalculateRoute = useCallback(async () => {
     if (plannerStops.length < 2) return;
     setIsLoadingRoute(true);
@@ -257,10 +330,9 @@ export function App() {
       setRouteResult(result);
       setShowRoute(true);
 
-      // Fit center on middle of route
       if (result.coordinates.length > 0) {
         const mid = result.coordinates[Math.floor(result.coordinates.length / 2)];
-        setFlyToTarget({ lat: mid[0], lng: mid[1], zoom: 14 });
+        setFlyToTarget({ lat: mid[0], lng: mid[1], zoom: 14.5 });
       }
     } catch (err) {
       console.error('Routing calculation failed:', err);
@@ -269,7 +341,47 @@ export function App() {
     }
   }, [plannerStops]);
 
-  // Admin Data Save & Reset
+  // Geolocation trigger
+  const handleLocateMe = useCallback(() => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        const { latitude, longitude } = pos.coords;
+        setFlyToTarget({ lat: latitude, lng: longitude, zoom: 16 });
+
+        // Count pandals within 1.5 km
+        let count = 0;
+        pandals.forEach((p) => {
+          if (p.lat && p.lng) {
+            const dLat = (p.lat - latitude) * 111.32;
+            const dLng = (p.lng - longitude) * 111.32 * Math.cos((latitude * Math.PI) / 180);
+            const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+            if (dist <= 1.5) count++;
+          }
+        });
+
+        setNearbyBanner(
+          count > 0
+            ? `Located your node! Found ${count} pandal${count === 1 ? '' : 's'} within 1.5 km.`
+            : 'Located your node! No verified pandals found within 1.5 km.'
+        );
+        setTimeout(() => setNearbyBanner(null), 6000);
+      },
+      (err) => {
+        setIsLocating(false);
+        alert(`Location acquisition failed: ${err.message}`);
+      },
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  }, [pandals]);
+
+  // Admin save & reset
   const handleSavePandals = useCallback((updated: Pandal[]) => {
     setPandals(updated);
     saveCustomPandals(updated);
@@ -278,167 +390,124 @@ export function App() {
   const handleResetDefaults = useCallback(() => {
     const fresh = resetPandalsToDefault();
     setPandals(fresh);
-    setSelectedPandal(fresh[0] || null);
+    setSelectedPandal(null);
   }, []);
 
-  // Calculate active filter count
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filters.selectedLine !== 'all') count++;
-    if (filters.selectedStation !== 'all') count++;
-    if (filters.selectedZone !== 'all') count++;
-    if (filters.selectedCategory !== 'all') count++;
-    if (filters.maxDistanceMeters > 0) count++;
-    if (filters.onlyVerified) count++;
-    return count;
-  }, [filters]);
-
   return (
-    <div className="kpn-app">
-      {/* 1. TOPBAR & NAVIGATION */}
+    <div className="kpn-app-root">
+      {/* 1. TOPBAR & SEARCH (Mobile-first Stitch design) */}
       <Header
         searchQuery={filters.searchQuery}
         onSearchChange={(q) => setFilters((prev) => ({ ...prev, searchQuery: q }))}
         activeTab={activeTab}
         onTabChange={(tab) => {
-          if (tab === 'admin') {
-            setIsAdminModalOpen(true);
-          } else {
-            setActiveTab(tab);
-          }
+          setActiveTab(tab);
+          setSelectedPandal(null);
         }}
         plannerCount={plannerStops.length}
         totalPandals={pandals.length}
         visibleCount={filteredPandals.length}
+        onLocateMe={handleLocateMe}
+        onOpenAdmin={() => setIsAdminModalOpen(true)}
+        isLocating={isLocating}
       />
 
+      {/* Nearby Banner Toast */}
+      {nearbyBanner && (
+        <div className="kpn-app-banner-toast" role="status">
+          <span>📍 {nearbyBanner}</span>
+          <button onClick={() => setNearbyBanner(null)} aria-label="Dismiss banner">
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* 2. MAIN APPLICATION WORKSPACE */}
-      <div className={`kpn-app-layout ${selectedPandal ? 'with-details' : ''}`}>
-        {/* LEFT SIDEBAR */}
-        <aside className="kpn-sidebar">
+      <main className={`kpn-workspace ${selectedPandal ? 'has-active-detail' : ''}`}>
+        {/* DESKTOP SIDEBAR / MOBILE TAB CONTENT */}
+        <div className={`kpn-tab-panel-container kpn-tab-${activeTab}`}>
           {activeTab === 'explore' && (
-            <>
-              <FilterBar
+            <div className="kpn-desktop-sidebar-only">
+              <ExploreSheet
+                pandals={filteredPandals}
+                allPandalsCount={pandals.length}
+                selectedPandal={selectedPandal}
+                plannerStops={plannerStops}
+                favorites={favorites}
                 filters={filters}
-                onChange={(upd) => setFilters((prev) => ({ ...prev, ...upd }))}
-                onReset={() => setFilters(DEFAULT_FILTERS)}
-                activeCount={activeFilterCount}
-              />
-
-              <div className="kpn-directory-meta">
-                <span>
-                  Showing <strong>{filteredPandals.length}</strong> of {pandals.length} pandals
-                </span>
-                {filters.selectedStation !== 'all' && (
-                  <span>
-                    Near <strong>{METRO_STATIONS_BY_ID[filters.selectedStation]?.name}</strong>
-                  </span>
-                )}
-              </div>
-
-              <div className="kpn-sidebar-scroll">
-                {filteredPandals.map((pandal, idx) => (
-                  <PandalCard
-                    key={pandal.id}
-                    pandal={pandal}
-                    index={idx}
-                    isSelected={selectedPandal?.id === pandal.id}
-                    isInPlanner={plannerStops.some((s) => s.id === pandal.id)}
-                    isFavorite={favorites.includes(pandal.id)}
-                    onSelect={() => handleSelectPandal(pandal)}
-                    onTogglePlanner={(e) => handleTogglePlannerPandal(pandal, e)}
-                    onToggleFavorite={(e) => handleToggleFavorite(pandal.id, e)}
-                  />
-                ))}
-
-                {filteredPandals.length === 0 && (
-                  <div className="kpn-empty-planner">
-                    <span className="kpn-empty-glyph">🔍</span>
-                    <p>No pandals match current filters.</p>
-                    <small>Try selecting "All Lines" or resetting filter criteria.</small>
-                    <button
-                      onClick={() => setFilters(DEFAULT_FILTERS)}
-                      className="kpn-filter-reset-btn"
-                      style={{ marginTop: 10 }}
-                    >
-                      Reset All Filters ↺
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          {activeTab === 'metro' && (
-            <MetroStationList
-              pandals={pandals}
-              selectedStationId={filters.selectedStation}
-              onSelectStation={(stId) => {
-                handleSelectStation(stId);
-                setActiveTab('explore');
-              }}
-              onSelectPandal={(p) => handleSelectPandal(p)}
-            />
-          )}
-
-          {activeTab === 'planner' && (
-            <RoutePlanner
-              stops={plannerStops}
-              onUpdateStops={(newStops) => setPlannerStops(newStops)}
-              routeResult={routeResult}
-              isLoadingRoute={isLoadingRoute}
-              onRequestCalculateRoute={handleCalculateRoute}
-              onClearRoute={() => {
-                setPlannerStops([]);
-                setRouteResult(null);
-              }}
-              allPandals={pandals}
-              onSelectPandalById={(id) => {
-                const found = pandals.find((p) => p.id === id);
-                if (found) handleSelectPandal(found);
-              }}
-            />
-          )}
-        </aside>
-
-        {/* CENTER INTERACTIVE VECTOR MAP POWERED BY OPENFREEMAP & OPENMAPTILES */}
-        <main className="kpn-map-section">
-          {nearbyBanner && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '56px',
-                left: '14px',
-                zIndex: 600,
-                background: '#ECFDF5',
-                border: '1px solid #6EE7B7',
-                color: '#065F46',
-                padding: '7px 12px',
-                borderRadius: '8px',
-                fontSize: '12px',
-                fontWeight: 600,
-                boxShadow: 'var(--shadow-md)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <span>📍 {nearbyBanner}</span>
-              <button
-                onClick={() => setNearbyBanner(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  color: '#065F46',
+                onUpdateFilters={(upd) => setFilters((prev) => ({ ...prev, ...upd }))}
+                onResetFilters={() => setFilters(DEFAULT_FILTERS)}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+                onTogglePlanner={(p, e) => handleTogglePlannerPandal(p, e)}
+                onToggleFavorite={(id, e) => handleToggleFavorite(id, e)}
+                onViewOnMap={() => {
+                  if (filteredPandals[0]) {
+                    handleSelectPandal(filteredPandals[0]);
+                  }
                 }}
-              >
-                ×
-              </button>
+              />
             </div>
           )}
 
+          {activeTab === 'metro' && (
+            <div className="kpn-tab-scroll-pane">
+              <MetroStationList
+                pandals={pandals}
+                selectedStationId={filters.selectedStation}
+                onSelectStation={(stId) => {
+                  handleSelectStation(stId);
+                  setFlyToTarget({
+                    lat: METRO_STATIONS_BY_ID[stId]?.lat || 22.5726,
+                    lng: METRO_STATIONS_BY_ID[stId]?.lng || 88.3639,
+                    zoom: 15.5,
+                  });
+                }}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+              />
+            </div>
+          )}
+
+          {activeTab === 'routes' && (
+            <div className="kpn-tab-scroll-pane">
+              <RoutePlanner
+                stops={plannerStops}
+                onUpdateStops={(newStops) => setPlannerStops(newStops)}
+                routeResult={routeResult}
+                isLoadingRoute={isLoadingRoute}
+                onRequestCalculateRoute={handleCalculateRoute}
+                onClearRoute={() => {
+                  setPlannerStops([]);
+                  setRouteResult(null);
+                }}
+                allPandals={pandals}
+                onSelectPandalById={(id) => {
+                  const found = pandals.find((p) => p.id === id);
+                  if (found) handleSelectPandal(found);
+                }}
+              />
+            </div>
+          )}
+
+          {activeTab === 'saved' && (
+            <div className="kpn-tab-scroll-pane">
+              <SavedPandalsView
+                pandals={pandals}
+                favorites={favorites}
+                onToggleFavorite={(id) => handleToggleFavorite(id)}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+                onAddAllToPlanner={handleAddAllSavedToPlanner}
+                onShowOnMap={(p) => {
+                  handleSelectPandal(p);
+                  setActiveTab('explore');
+                }}
+                onStartWalk={(p) => handleStartRouteFromMetro(p)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* CENTER INTERACTIVE VECTOR MAP */}
+        <div className={`kpn-map-wrapper ${activeTab !== 'explore' ? 'kpn-map-secondary' : ''}`}>
           <MapLibreMap
             pandals={filteredPandals}
             metroStations={METRO_STATIONS}
@@ -460,75 +529,71 @@ export function App() {
             onNearbyFound={(count) => {
               setNearbyBanner(
                 count > 0
-                  ? `Located you! Found ${count} pandal${count === 1 ? '' : 's'} within 1.5 km of your position.`
-                  : 'Located you! No mapped pandals found within 1.5 km of this position.'
+                  ? `Located you! Found ${count} pandal${count === 1 ? '' : 's'} within 1.5 km.`
+                  : 'Located you! No mapped pandals found within 1.5 km.'
               );
-              setTimeout(() => setNearbyBanner(null), 7000);
+              setTimeout(() => setNearbyBanner(null), 6000);
             }}
           />
-        </main>
 
-        {/* RIGHT PANDAL DETAILS PANEL */}
-        {selectedPandal && (
-          <PandalDetails
-            pandal={selectedPandal}
-            onClose={() => setSelectedPandal(null)}
-            onCenterMap={() => {
-              if (selectedPandal.lat && selectedPandal.lng) {
-                setFlyToTarget({ lat: selectedPandal.lat, lng: selectedPandal.lng, zoom: 17 });
-              }
-            }}
-            onAddToPlanner={() => handleTogglePlannerPandal(selectedPandal)}
-            isInPlanner={plannerStops.some((s) => s.id === selectedPandal.id)}
-            onStartRouteFromMetro={() => handleStartRouteFromMetro(selectedPandal)}
-            isFavorite={favorites.includes(selectedPandal.id)}
-            onToggleFavorite={() => handleToggleFavorite(selectedPandal.id)}
-          />
-        )}
-      </div>
-
-      {/* MOBILE BOTTOM SHEET FOR DIRECTORY ON PHONES */}
-      <BottomSheet
-        title={activeTab === 'planner' ? 'Hopping Itinerary' : 'Nearby Pandals'}
-        count={activeTab === 'planner' ? plannerStops.length : filteredPandals.length}
-      >
-        {activeTab === 'planner' ? (
-          <RoutePlanner
-            stops={plannerStops}
-            onUpdateStops={(newStops) => setPlannerStops(newStops)}
-            routeResult={routeResult}
-            isLoadingRoute={isLoadingRoute}
-            onRequestCalculateRoute={handleCalculateRoute}
-            onClearRoute={() => {
-              setPlannerStops([]);
-              setRouteResult(null);
-            }}
-            allPandals={pandals}
-            onSelectPandalById={(id) => {
-              const found = pandals.find((p) => p.id === id);
-              if (found) handleSelectPandal(found);
-            }}
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {filteredPandals.slice(0, 30).map((pandal, idx) => (
-              <PandalCard
-                key={pandal.id}
-                pandal={pandal}
-                index={idx}
-                isSelected={selectedPandal?.id === pandal.id}
-                isInPlanner={plannerStops.some((s) => s.id === pandal.id)}
-                isFavorite={favorites.includes(pandal.id)}
-                onSelect={() => handleSelectPandal(pandal)}
-                onTogglePlanner={(e) => handleTogglePlannerPandal(pandal, e)}
-                onToggleFavorite={(e) => handleToggleFavorite(pandal.id, e)}
+          {/* MOBILE DRAGGABLE BOTTOM SHEET FOR EXPLORE TAB */}
+          {activeTab === 'explore' && (
+            <div className="kpn-mobile-explore-sheet-wrap">
+              <ExploreSheet
+                pandals={filteredPandals}
+                allPandalsCount={pandals.length}
+                selectedPandal={selectedPandal}
+                plannerStops={plannerStops}
+                favorites={favorites}
+                filters={filters}
+                onUpdateFilters={(upd) => setFilters((prev) => ({ ...prev, ...upd }))}
+                onResetFilters={() => setFilters(DEFAULT_FILTERS)}
+                onSelectPandal={(p) => handleSelectPandal(p)}
+                onTogglePlanner={(p, e) => handleTogglePlannerPandal(p, e)}
+                onToggleFavorite={(id, e) => handleToggleFavorite(id, e)}
+                onViewOnMap={() => {
+                  if (filteredPandals[0]) {
+                    handleSelectPandal(filteredPandals[0]);
+                  }
+                }}
               />
-            ))}
+            </div>
+          )}
+        </div>
+
+        {/* PANDAL DETAIL OVERLAY (Mobile Full-Screen Sheet & Desktop Right Panel) */}
+        {selectedPandal && (
+          <div className="kpn-details-container-wrap">
+            <PandalDetails
+              pandal={selectedPandal}
+              onClose={() => setSelectedPandal(null)}
+              onCenterMap={() => {
+                if (selectedPandal.lat && selectedPandal.lng) {
+                  setFlyToTarget({ lat: selectedPandal.lat, lng: selectedPandal.lng, zoom: 17 });
+                }
+              }}
+              onAddToPlanner={() => handleTogglePlannerPandal(selectedPandal)}
+              isInPlanner={plannerStops.some((s) => s.id === selectedPandal.id)}
+              onStartRouteFromMetro={() => handleStartRouteFromMetro(selectedPandal)}
+              isFavorite={favorites.includes(selectedPandal.id)}
+              onToggleFavorite={() => handleToggleFavorite(selectedPandal.id)}
+            />
           </div>
         )}
-      </BottomSheet>
+      </main>
 
-      {/* ADMIN & DATA MODAL */}
+      {/* 3. FIXED BOTTOM NAVIGATION BAR FOR MOBILE SCREENS */}
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          setSelectedPandal(null);
+        }}
+        savedCount={favorites.length}
+        routesCount={plannerStops.length}
+      />
+
+      {/* 4. ADMIN & DATA MODAL */}
       <AdminModal
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}

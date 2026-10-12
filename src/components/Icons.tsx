@@ -1,6 +1,6 @@
 import React from 'react';
 
-interface IconProps {
+export interface IconProps {
   className?: string;
   size?: number;
   style?: React.CSSProperties;
@@ -141,6 +141,85 @@ export function HeartIcon({
   );
 }
 
+export function BookmarkIcon({
+  filled = false,
+  className = '',
+  size = 16,
+  style,
+}: {
+  filled?: boolean;
+  className?: string;
+  size?: number;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+    </svg>
+  );
+}
+
+export function CompassIcon({ className = '', size = 18, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="10" strokeWidth={2} />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function CrosshairIcon({ className = '', size = 18, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="7" strokeWidth={2} />
+      <line x1="12" y1="1" x2="12" y2="5" strokeWidth={2} strokeLinecap="round" />
+      <line x1="12" y1="19" x2="12" y2="23" strokeWidth={2} strokeLinecap="round" />
+      <line x1="1" y1="12" x2="5" y2="12" strokeWidth={2} strokeLinecap="round" />
+      <line x1="19" y1="12" x2="23" y2="12" strokeWidth={2} strokeLinecap="round" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function UserIcon({ className = '', size = 18, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+    </svg>
+  );
+}
+
 export function ShareIcon({ className = '', size = 14, style }: IconProps) {
   return (
     <svg
@@ -201,6 +280,184 @@ export function FilterIcon({ className = '', size = 14, style }: IconProps) {
       viewBox="0 0 24 24"
     >
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    </svg>
+  );
+}
+
+export function TrashIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+export function DirectionsIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+    </svg>
+  );
+}
+
+export function VolumeIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+    </svg>
+  );
+}
+
+export function VolumeMuteIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l4-4m0 4l-4-4" />
+    </svg>
+  );
+}
+
+export function ReorderHandleIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+    </svg>
+  );
+}
+
+export function BackIcon({ className = '', size = 18, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+export function ChevronUpIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+  );
+}
+
+export function InfoIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="10" strokeWidth={2} />
+      <line x1="12" y1="16" x2="12" y2="12" strokeWidth={2} />
+      <line x1="12" y1="8" x2="12.01" y2="8" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ShieldCheckIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
+  );
+}
+
+export function OptimizeIcon({ className = '', size = 14, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M7 2v11h3v9l7-12h-4l4-8z" />
     </svg>
   );
 }
