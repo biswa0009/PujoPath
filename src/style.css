@@ -564,6 +564,14 @@ img {
   position: absolute;
   inset: 0;
   background: #F4EFE6;
+  overflow: hidden;
+}
+
+.kpn-map-canvas {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
 .kpn-map-floating-bar {
@@ -767,12 +775,15 @@ img {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 32px 12px;
   transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   position: relative;
   max-height: 85vh;
 }
+
 
 .kpn-route-mobile-sheet.is-peek {
   height: 250px;
@@ -2608,8 +2619,10 @@ img {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 12px;
   padding-bottom: 30px;
 }
+
 
 .kpn-routes-head-card {
   background: #FFF;
@@ -2841,22 +2854,44 @@ img {
 .kpn-stop-reorder {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
 .kpn-move-btn {
-  font-size: 9px;
-  color: var(--text-sub);
-  padding: 1px;
+  width: 24px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  background: var(--ivory-muted-bg);
+  border: 1px solid var(--ivory-border);
+  font-size: 11px;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kpn-move-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.kpn-move-btn:not(:disabled):hover {
+  background: #FFF;
+  color: var(--maroon);
+  border-color: var(--maroon);
 }
 
 .kpn-stop-num-badge {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radius-full);
   background: var(--vermilion);
   color: #FFF;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 800;
   display: flex;
   align-items: center;
@@ -2879,10 +2914,13 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
 }
 
 .kpn-stop-name {
   font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2890,32 +2928,61 @@ img {
 
 .kpn-zero-m {
   font-size: 11px;
+  font-weight: 700;
   color: var(--text-sub);
+  background: var(--ivory-muted-bg);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
 }
 
 .kpn-stop-sub {
   font-size: 11px;
   color: var(--text-muted);
   display: flex;
+  align-items: center;
   gap: 6px;
+  margin-top: 2px;
 }
 
 .kpn-stop-beng {
   color: var(--vermilion);
+  font-weight: 600;
 }
 
 .kpn-stop-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.kpn-stop-info-btn, .kpn-stop-delete-btn {
+.kpn-stop-info-btn,
+.kpn-stop-delete-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--ivory-muted-bg);
+  border: 1px solid var(--ivory-border);
   color: var(--text-sub);
-  padding: 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
+
+.kpn-stop-info-btn:hover {
+  background: #FFF;
+  color: var(--maroon);
+  border-color: var(--maroon);
+}
+
+.kpn-stop-delete-btn:hover {
+  background: #FEE2E2;
+  color: var(--vermilion);
+  border-color: #FCA5A5;
+}
+
 
 /* Prominent Callout Card in Route */
 .kpn-route-nav-callout {

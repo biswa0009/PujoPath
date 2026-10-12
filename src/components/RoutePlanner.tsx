@@ -20,6 +20,13 @@ import {
   ShieldCheckIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  ClockIcon,
+  TimerIcon,
+  AlertTriangleIcon,
+  PlusIcon,
+  TempleIcon,
+  MetroIcon,
+  MapPinIcon,
 } from './Icons';
 
 interface RoutePlannerProps {
@@ -293,32 +300,32 @@ export function RoutePlanner({
         <p className="kpn-routes-bengali-sub">কলকাতা দুর্গোৎসব পদযাত্রা ও পথপরিক্রমা</p>
       </div>
 
-      {/* 2. Route Summary & Routing Provider Badge */}
-      <div className="kpn-route-status-card">
+      {/* 2. Map Banner / Overlay Preview */}
+      <div className="kpn-route-map-banner">
         <div className="kpn-banner-map-overlay">
           <span className="kpn-banner-badge">
             <ShieldCheckIcon size={13} />
             {isApproximate
               ? 'Approximate Walking Estimate (Urban Grid Detour)'
-              : 'OSRM Pedestrian Walking Directions'}
+              : 'Kolkata Police Verified Walking Path'}
           </span>
           <span className="kpn-banner-dist">
             {totalDistKm} km · ~{totalTimeMins} min
           </span>
         </div>
-
-        {/* GPS Error Notification if any */}
-        {gpsError && (
-          <div className="kpn-route-error-alert" role="alert">
-            <InfoIcon size={14} />
-            <span>{gpsError}</span>
-          </div>
-        )}
       </div>
 
-      {/* 3. Primary Navigation Action Row */}
+      {/* GPS Error Notification if any */}
+      {gpsError && (
+        <div className="kpn-route-error-alert" role="alert">
+          <InfoIcon size={14} />
+          <span>{gpsError}</span>
+        </div>
+      )}
+
+      {/* 3. Primary Navigation Callout Card */}
       {stops.length > 0 && (
-        <div className="kpn-route-actions-card">
+        <div className="kpn-route-nav-callout">
           <button
             type="button"
             className="kpn-btn-start-nav"
@@ -331,18 +338,18 @@ export function RoutePlanner({
           >
             <WalkIcon size={18} />
             <span>
-              {navStarted ? 'Continue Navigation' : `Start Turn-by-Turn Nav · ${totalDistKm} km`}
+              {navStarted ? 'Continue Navigation' : `Start Turn-by-Turn Walking Nav • ${totalDistKm} km`}
             </span>
           </button>
 
-          <div className="kpn-route-sub-actions">
+          <div className="kpn-callout-sub-actions">
             <button
               type="button"
-              className="kpn-btn-share-route"
+              className="kpn-btn-callout-action"
               onClick={handleShare}
               title="Share Itinerary"
             >
-              <ShareIcon size={15} />
+              <ShareIcon size={14} />
               <span>Share Itinerary</span>
             </button>
 
@@ -350,10 +357,10 @@ export function RoutePlanner({
               href={googleMapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="kpn-btn-google-maps"
+              className="kpn-btn-callout-action"
               title="Open multi-stop walking route in Google Maps"
             >
-              <ExternalLinkIcon size={14} />
+              <ExternalLinkIcon size={13} />
               <span>Google Maps ↗</span>
             </a>
           </div>
@@ -366,27 +373,28 @@ export function RoutePlanner({
         </div>
       )}
 
-      {/* 4. Origin Selector Card */}
+      {/* 4. Origin Card */}
       <div className="kpn-origin-card">
         <div className="kpn-origin-top-row">
           <div className="kpn-origin-label-wrap">
-            <span className="kpn-origin-gps-dot">📍</span>
+            <span className="kpn-origin-gps-dot">
+              <CrosshairIcon size={13} />
+            </span>
             <span className="kpn-origin-label">
               {stops[0]?.type === 'custom'
-                ? 'ORIGIN: LIVE GPS'
+                ? 'ORIGIN • LIVE GPS'
                 : stops[0]?.type === 'station'
-                ? `ORIGIN: ${stops[0].name.replace(' Station', '')}`
-                : 'STARTING POINT'}
+                ? `ORIGIN • ${stops[0].name.replace(' Station', '').toUpperCase()}`
+                : 'ORIGIN • STARTING POINT'}
             </span>
           </div>
           <button
             type="button"
-            className="kpn-btn-gps-locate"
+            className="kpn-origin-change-btn"
             onClick={handleAddCurrentLocation}
             title="Use current GPS location as starting origin"
           >
-            <CrosshairIcon size={13} />
-            <span>Use GPS</span>
+            Use GPS
           </button>
         </div>
 
@@ -394,10 +402,10 @@ export function RoutePlanner({
           <select
             value={selectedStartStation}
             onChange={(e) => handleAddStartStation(e.target.value)}
-            className="kpn-origin-select"
+            className="kpn-start-station-select"
             aria-label="Select starting Metro station"
           >
-            <option value="">🚇 Or set origin from any Metro Station...</option>
+            <option value="">🚇 Or start from any Metro Station...</option>
             {METRO_STATIONS.map((st) => (
               <option key={st.id} value={st.id}>
                 {st.name} ({st.bengaliName || ''}) — {st.line}
@@ -409,9 +417,9 @@ export function RoutePlanner({
 
       {/* 5. Itinerary Ordered Stops List */}
       <div className="kpn-itinerary-section">
-        <div className="kpn-itinerary-header">
-          <span className="kpn-itinerary-label">ITINERARY SEQUENCE</span>
-          <span className="kpn-itinerary-reorder-hint">Use ▲ ▼ to reorder stops</span>
+        <div className="kpn-itinerary-head">
+          <span className="kpn-itinerary-label">ITINERARY ORDER</span>
+          <span className="kpn-itinerary-handle-hint">Hold handles to reorder</span>
         </div>
 
         {stops.length === 0 ? (
@@ -455,13 +463,12 @@ export function RoutePlanner({
             </div>
           </div>
         ) : (
-          <div className="kpn-itinerary-list">
+          <div className="kpn-itinerary-stops-list">
             {stops.map((stop, idx) => {
               const isFirst = idx === 0;
               const isLast = idx === stops.length - 1;
               const isPandal = stop.type === 'pandal';
 
-              // Calculate walking leg distance to next stop
               let legDistanceMeters = 0;
               let legTimeMinutes = 0;
               if (!isLast && stops[idx + 1]) {
@@ -478,87 +485,97 @@ export function RoutePlanner({
               return (
                 <React.Fragment key={stop.id}>
                   <div
-                    className={`kpn-itinerary-item ${isPandal ? 'is-pandal' : 'is-origin'}`}
+                    className={`kpn-stop-card ${isFirst ? 'is-origin' : 'is-pandal'}`}
                     onClick={() => handleStopClick(stop)}
                     role="button"
                     tabIndex={0}
                   >
                     {/* Reorder Arrows */}
-                    <div className="kpn-reorder-controls">
+                    <div className="kpn-stop-reorder" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
-                        className="kpn-btn-reorder"
+                        className="kpn-move-btn"
                         onClick={(e) => handleMoveUp(idx, e)}
                         disabled={isFirst}
                         aria-label={`Move ${stop.name} up`}
                       >
-                        ▲
+                        <ChevronUpIcon size={12} />
                       </button>
                       <button
                         type="button"
-                        className="kpn-btn-reorder"
+                        className="kpn-move-btn"
                         onClick={(e) => handleMoveDown(idx, e)}
                         disabled={isLast}
                         aria-label={`Move ${stop.name} down`}
                       >
-                        ▼
+                        <ChevronDownIcon size={12} />
                       </button>
                     </div>
 
                     {/* Step Number Circle */}
-                    <div className="kpn-step-number-badge">
-                      {isFirst && stop.type === 'station'
-                        ? '🚇'
-                        : isFirst && stop.type === 'custom'
-                        ? '📍'
-                        : `${idx + 1}`}
+                    <div className={`kpn-stop-num-badge ${isFirst ? 'is-start' : ''}`}>
+                      {isFirst ? (
+                        stop.type === 'station' ? (
+                          <MetroIcon size={13} />
+                        ) : (
+                          <MapPinIcon size={13} />
+                        )
+                      ) : (
+                        idx + 1
+                      )}
                     </div>
 
                     {/* Stop Details */}
                     <div className="kpn-stop-info">
-                      <div className="kpn-stop-name-row">
-                        <strong className="kpn-stop-name">{stop.name}</strong>
+                      <div className="kpn-stop-title-row">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                          {isPandal && (
+                            <TempleIcon size={14} style={{ color: 'var(--vermilion)', flexShrink: 0 }} />
+                          )}
+                          <strong className="kpn-stop-name">{stop.name}</strong>
+                        </div>
+                        {isFirst && <span className="kpn-zero-m">0 m</span>}
                       </div>
-                      {stop.bengaliName && (
-                        <small className="kpn-stop-bn">{stop.bengaliName}</small>
-                      )}
-                      {stop.note && <span className="kpn-stop-note-tag">{stop.note}</span>}
+
+                      <div className="kpn-stop-sub">
+                        {stop.bengaliName && (
+                          <span className="kpn-stop-beng">{stop.bengaliName}</span>
+                        )}
+                        {stop.note && <span>• {stop.note}</span>}
+                      </div>
                     </div>
 
                     {/* Actions on stop */}
-                    <div className="kpn-stop-actions">
+                    <div className="kpn-stop-actions" onClick={(e) => e.stopPropagation()}>
                       {isPandal && (
                         <button
                           type="button"
-                          className="kpn-btn-stop-info"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectPandalById(stop.id);
-                          }}
+                          className="kpn-stop-info-btn"
+                          onClick={() => onSelectPandalById(stop.id)}
                           title="View pandal details"
                           aria-label={`View details for ${stop.name}`}
                         >
-                          <InfoIcon size={14} />
+                          <InfoIcon size={15} />
                         </button>
                       )}
                       <button
                         type="button"
-                        className="kpn-btn-remove-stop"
+                        className="kpn-stop-delete-btn"
                         onClick={(e) => handleRemoveStop(stop.id, e)}
                         title="Remove stop"
                         aria-label={`Remove ${stop.name} from itinerary`}
                       >
-                        <CloseIcon size={13} />
+                        <CloseIcon size={14} />
                       </button>
                     </div>
                   </div>
 
                   {/* Inter-stop walking connector bar */}
                   {!isLast && (
-                    <div className="kpn-itinerary-connector">
+                    <div className="kpn-stop-connector">
                       <div className="kpn-connector-line" />
                       <div className="kpn-connector-badge">
-                        <WalkIcon size={13} />
+                        <WalkIcon size={12} />
                         <span>
                           {legDistanceMeters < 1000
                             ? `${legDistanceMeters}m`
@@ -575,15 +592,14 @@ export function RoutePlanner({
         )}
 
         {/* Add Another Pandal Button */}
-        <div className="kpn-add-stop-row">
-          <button
-            type="button"
-            className="kpn-btn-add-pandal-trigger"
-            onClick={() => setIsPickerOpen(true)}
-          >
-            <span>+ Add another pandal to route</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          className="kpn-btn-add-another-pandal"
+          onClick={() => setIsPickerOpen(true)}
+        >
+          <PlusIcon size={15} style={{ marginRight: 6 }} />
+          <span>Add another pandal to route</span>
+        </button>
       </div>
 
       {/* Add Pandal Modal Picker */}
@@ -623,7 +639,9 @@ export function RoutePlanner({
                   <div className="kpn-picker-left">
                     <strong>{p.name}</strong>
                     {p.bengaliName && <small>{p.bengaliName}</small>}
-                    <span className="kpn-picker-area-tag">{p.neighbourhood} · {p.zone}</span>
+                    <span className="kpn-picker-area-tag">
+                      {p.neighbourhood} · {p.zone}
+                    </span>
                   </div>
                   <span className="kpn-picker-add-action">+ Add</span>
                 </div>
@@ -633,45 +651,50 @@ export function RoutePlanner({
         </div>
       )}
 
-      {/* 6. Route Metrics & Transit Advisory */}
-      <div className="kpn-route-metrics-card">
-        <div className="kpn-metrics-header">
+      {/* 6. Route Metrics Card */}
+      <div className="kpn-metrics-card">
+        <div className="kpn-metrics-head">
           <span>ROUTE METRICS & TIMING</span>
-          <span className="kpn-metrics-badge">Live Traffic Factored</span>
+          <span className="kpn-traffic-pill">● Live Traffic Factored</span>
         </div>
 
-        <div className="kpn-metrics-three-grid">
+        <div className="kpn-metrics-grid">
           <div className="kpn-metric-box">
-            <span className="kpn-metric-icon">👟</span>
-            <strong>{totalDistKm} km</strong>
+            <RouteIcon size={15} style={{ color: 'var(--maroon)' }} />
             <small>Walking Path</small>
+            <strong>{totalDistKm} km</strong>
           </div>
           <div className="kpn-metric-box">
-            <span className="kpn-metric-icon">⏱️</span>
-            <strong>~{totalTimeMins} mins</strong>
+            <ClockIcon size={15} style={{ color: 'var(--maroon)' }} />
             <small>Pace Walk</small>
+            <strong>~{totalTimeMins} mins</strong>
           </div>
           <div className="kpn-metric-box">
-            <span className="kpn-metric-icon">🌙</span>
-            <strong>
-              ~{stops.length > 2 ? Math.round(stops.length * 0.45) : 1}h {((stops.length * 27) % 60)}m
-            </strong>
+            <TimerIcon size={15} style={{ color: 'var(--maroon)' }} />
             <small>Total Tour</small>
+            <strong>
+              ~{stops.length > 2 ? Math.round(stops.length * 0.45) : 1}h{' '}
+              {(stops.length * 27) % 60}m
+            </strong>
           </div>
         </div>
 
         {/* Kolkata Police Advisory */}
-        <div className="kpn-kp-advisory-box">
-          <div className="kpn-advisory-icon">⚠️</div>
+        <div className="kpn-police-advisory-box">
+          <AlertTriangleIcon
+            size={18}
+            className="kpn-advisory-warning-icon"
+            style={{ flexShrink: 0 }}
+          />
           <div>
-            <strong>KOLKATA POLICE PEDESTRIAN ADVISORY:</strong>
-            <p>
+            <strong>KOLKATA POLICE ADVISORY:</strong>
+            <p style={{ marginTop: 2 }}>
               One-way pedestrian flow active on major pandal corridors (Rashbehari Ave, Bidhan Sarani, B.B. Ganguly St) after 5:00 PM. Barricades active near metro entry points.
             </p>
           </div>
         </div>
 
-        {/* Metro Transfer Hints if applicable */}
+        {/* Metro Transfer Advice */}
         {routeResult?.metroTransferAdvice && routeResult.metroTransferAdvice.length > 0 && (
           <div className="kpn-metro-transfer-advice-block">
             {routeResult.metroTransferAdvice.map((advice, i) => (

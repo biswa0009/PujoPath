@@ -1,5 +1,5 @@
 import React from 'react';
-import { CompassIcon, MetroIcon, RouteIcon, BookmarkIcon } from './Icons';
+import { CompassIcon, MetroIcon, WalkIcon, BookmarkIcon } from './Icons';
 
 export type MainNavTab = 'explore' | 'metro' | 'routes' | 'saved';
 
@@ -49,7 +49,7 @@ export function BottomNav({
         id="bnav-routes-btn"
       >
         <span className="kpn-bnav-icon-wrap">
-          <RouteIcon size={20} />
+          <WalkIcon size={20} />
           {routesCount > 0 && <span className="kpn-bnav-badge">{routesCount}</span>}
         </span>
         <span className="kpn-bnav-label">Routes</span>

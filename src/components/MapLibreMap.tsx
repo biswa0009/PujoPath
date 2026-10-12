@@ -510,13 +510,27 @@ export function MapLibreMap({
         mapRef.current.resize();
       }
     };
+
     window.addEventListener('resize', handleResize);
-    const timer = setTimeout(handleResize, 250);
+    const timer = setTimeout(handleResize, 150);
+
+    let ro: ResizeObserver | null = null;
+    if (mapContainerRef.current && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => {
+        if (mapRef.current) {
+          mapRef.current.resize();
+        }
+      });
+      ro.observe(mapContainerRef.current);
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
+      if (ro) ro.disconnect();
     };
   }, [selectedPandal]);
+
 
   // FlyTo Handler
   useEffect(() => {
@@ -778,17 +792,18 @@ export function MapLibreMap({
       <div className="kpn-map-floating-actions">
         <button
           type="button"
-          className={`kpn-btn-map-control ${isLocating ? 'is-loading' : ''}`}
+          className={`kpn-map-action-btn ${isLocating ? 'is-loading' : ''}`}
           onClick={handleLocateMe}
           title="Locate me on map (GPS)"
           aria-label="Locate me on map"
         >
-          <span>📍</span> Locate Me
+          <span style={{ fontSize: 13 }}>📍</span>
+          <span>Locate Me</span>
         </button>
 
         <button
           type="button"
-          className="kpn-btn-map-control"
+          className="kpn-map-action-btn"
           onClick={() => {
             if (mapRef.current) {
               mapRef.current.flyTo({
@@ -801,22 +816,21 @@ export function MapLibreMap({
           title="Reset map view to central Kolkata"
           aria-label="Reset map view"
         >
-          ↺ Reset View
+          <span>↺</span>
+          <span>Reset View</span>
         </button>
 
         {/* Style Selector */}
-        <div className="kpn-style-selector-wrap">
-          <select
-            value={mapStyleUrl}
-            onChange={(e) => setMapStyleUrl(e.target.value)}
-            className="kpn-map-style-select"
-            aria-label="Select Map Style"
-          >
-            <option value="https://tiles.openfreemap.org/styles/liberty">Liberty Style</option>
-            <option value="https://tiles.openfreemap.org/styles/bright">Bright Style</option>
-            <option value="https://tiles.openfreemap.org/styles/positron">Positron Style</option>
-          </select>
-        </div>
+        <select
+          value={mapStyleUrl}
+          onChange={(e) => setMapStyleUrl(e.target.value)}
+          className="kpn-style-selector"
+          aria-label="Select Map Style"
+        >
+          <option value="https://tiles.openfreemap.org/styles/liberty">Liberty Style</option>
+          <option value="https://tiles.openfreemap.org/styles/bright">Bright Style</option>
+          <option value="https://tiles.openfreemap.org/styles/positron">Positron Style</option>
+        </select>
       </div>
 
       {/* Collapsible Interactive Map Legend */}

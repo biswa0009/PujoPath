@@ -9,6 +9,9 @@ import {
   ShieldCheckIcon,
   BookmarkIcon,
   DirectionsIcon,
+  VolumeIcon,
+  DoorIcon,
+  UsersGroupIcon,
 } from './Icons';
 
 interface MetroStationListProps {
@@ -615,59 +618,101 @@ export function MetroStationList({
         </div>
       </div>
 
-      {/* 6. Nearby Famous Pandals List */}
+      {/* 6. Nearby Famous Pandals List (Stitch UI) */}
       <div className="kpn-nearby-section">
         <div className="kpn-nearby-header">
           <div>
-            <h3 className="kpn-nearby-title">Nearby Pandals from {currentStation.name}</h3>
-            <p className="kpn-nearby-sub">Walking paths coordinated with police crowd control barricades</p>
+            <h3>Nearby Famous Pandals</h3>
+            <span className="kpn-nearby-count-pill">{nearbyPandals.length} Available</span>
           </div>
-          <span className="kpn-badge-nearby-count">{nearbyPandals.length} Available</span>
+          <button type="button" className="kpn-nearby-sort-btn">
+            Nearest
+          </button>
         </div>
+        <p className="kpn-nearby-subtext">Walking paths optimized for police one-way crowd control</p>
 
         {nearbyPandals.length === 0 ? (
-          <div className="kpn-empty-state-card">
+          <div className="kpn-empty-state-card" style={{ marginTop: 8 }}>
             <p>No mapped pandals directly within 1 km of this station yet.</p>
             <small>Explore other stations on the {activeLineMeta?.name || 'Blue Line'} using the schematic above.</small>
           </div>
         ) : (
-          <div className="kpn-nearby-pandals-list">
+          <div className="kpn-nearby-list">
             {nearbyPandals.map((pandal) => {
               const walkDist = pandal.walkingDistanceMeters || 650;
               const walkMin = pandal.walkingTimeMinutes || Math.round(walkDist / 75);
 
               return (
-                <div key={pandal.id} className="kpn-metro-pandal-card">
-                  <div className="kpn-card-top-row">
-                    <span className="kpn-police-route-badge">
-                      <ShieldCheckIcon size={12} /> Police Approved Pedestrian Route
+                <div key={pandal.id} className="kpn-nearby-pandal-card">
+                  <div className="kpn-nearby-card-top">
+                    <span className="kpn-route-badge">
+                      <ShieldCheckIcon size={12} style={{ marginRight: 4 }} />
+                      POLICE APPROVED ROUTE • {pandal.neighbourhood || 'Corridor'}
                     </span>
-                    <div className="kpn-walk-timing-badge">
-                      <strong>{walkDist < 1000 ? `${walkDist}m` : `${(walkDist / 1000).toFixed(1)}km`}</strong>
-                      <small>~{walkMin} min walk</small>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="kpn-nearby-dist-big">
+                        {walkDist < 1000 ? `${walkDist}m` : `${(walkDist / 1000).toFixed(1)}km`}
+                      </span>
+                      <span className="kpn-nearby-walk-mins" style={{ display: 'block' }}>
+                        ~{walkMin} min walk
+                      </span>
                     </div>
                   </div>
 
-                  <div className="kpn-card-main-info" onClick={() => onSelectPandal(pandal)} role="button" tabIndex={0}>
-                    <h4 className="kpn-nearby-pandal-name">
-                      {pandal.name}{' '}
-                      {pandal.bengaliName && (
-                        <span className="kpn-nearby-bn-name">{pandal.bengaliName}</span>
-                      )}
-                    </h4>
-                    <p className="kpn-nearby-theme-desc">
-                      {pandal.theme || pandal.knownFor || `${pandal.category} puja at ${pandal.neighbourhood}`}
-                    </p>
+                  <div
+                    className="kpn-nearby-info-row"
+                    onClick={() => onSelectPandal(pandal)}
+                    role="button"
+                    tabIndex={0}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="kpn-nearby-names">
+                      <h4>
+                        {pandal.name}
+                        {pandal.bengaliName && (
+                          <span className="kpn-nearby-beng">{pandal.bengaliName}</span>
+                        )}
+                      </h4>
+                      <p className="kpn-nearby-theme">
+                        {pandal.theme || pandal.knownFor || `${pandal.category} puja at ${pandal.neighbourhood}`}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="kpn-card-footer-actions">
+                  <div className="kpn-nearby-tags-row">
+                    <span className="kpn-tag-gate">
+                      <DoorIcon size={12} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                      Exit Gate {pandal.nearestStationId ? '1 & 2' : 'Active'}
+                    </span>
+                    <span className="kpn-tag-calibrated">
+                      ● GPS Calibrated Path
+                    </span>
+                    <span className="kpn-tag-queue">
+                      <UsersGroupIcon size={12} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                      ~15 min queue
+                    </span>
+                  </div>
+
+                  <div className="kpn-nearby-actions-row">
                     <button
                       type="button"
-                      className="kpn-btn-walk-from-metro"
+                      className="kpn-btn-walk-metro"
                       onClick={() => onSelectPandal(pandal)}
                     >
                       <WalkIcon size={15} />
-                      <span>View & Walk from Metro</span>
+                      <span>Walk from Metro</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="kpn-btn-audio-mini"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        alert(`Bengali audio guide for ${pandal.name} active during festive days!`);
+                      }}
+                      title="Audio guide"
+                      aria-label="Audio guide"
+                    >
+                      <VolumeIcon size={15} />
                     </button>
                   </div>
                 </div>

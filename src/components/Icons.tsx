@@ -461,3 +461,132 @@ export function OptimizeIcon({ className = '', size = 14, style }: IconProps) {
     </svg>
   );
 }
+
+export function FlameIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 23c-4.418 0-8-3.582-8-8 0-4.148 2.766-7.398 5.625-10.43.328-.348.887-.27 1.11.16C12.1 7.4 13.5 9 14.5 10.5c.34-2.1.06-4.5-1.12-6.38-.21-.34.02-.78.42-.74C17.5 3.8 20 8.2 20 15c0 4.418-3.582 8-8 8zm0-3.5c2.485 0 4.5-2.015 4.5-4.5 0-2.316-1.573-4.2-3.5-5.32-.42 1.34-1.28 2.38-2.22 3.32-1.07 1.07-1.78 2.34-1.78 4 0 1.38.56 2.5 1.5 2.5z" />
+    </svg>
+  );
+}
+
+export function DoorIcon({ className = '', size = 14, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+    </svg>
+  );
+}
+
+export function UsersGroupIcon({ className = '', size = 14, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+    </svg>
+  );
+}
+
+export function ClockIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="9" strokeWidth={2} />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 7v5l3 3" />
+    </svg>
+  );
+}
+
+export function TimerIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="14" r="8" strokeWidth={2} />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v5l3 2M10 2h4M12 2v3" />
+    </svg>
+  );
+}
+
+export function AlertTriangleIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ className = '', size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12m6-6H6" />
+    </svg>
+  );
+}
+
+export function TempleIcon({ className = '', size = 15, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size, flexShrink: 0, ...style }}
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 2L4 6v2h16V6l-8-4zm-6 8v9h2v-9H6zm5 0v9h2v-9h-2zm5 0v9h2v-9h-2zM2 21h20v2H2v-2z" />
+    </svg>
+  );
+}
+
