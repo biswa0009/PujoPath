@@ -61,6 +61,9 @@ export function optimizeRouteOrder(stops: RouteStop[]): RouteStop[] {
 /**
  * Fetch pedestrian route from OSRM foot routing API with fallback
  */
+/**
+ * Fetch pedestrian route with fast OpenStreetMap mirror, pairwise fallback, and optional API key support
+ */
 export async function getPedestrianRoute(rawStops: RouteStop[]): Promise<RouteResult> {
   // 1. Sanitize and validate stops
   const stops = rawStops.filter(
@@ -77,65 +80,195 @@ export async function getPedestrianRoute(rawStops: RouteStop[]): Promise<RouteRe
     };
   }
 
-  // Build OSRM coordinates string: {lng},{lat};{lng},{lat}...
-  const coordString = stops.map((s) => `${s.lng},${s.lat}`).join(';');
-  const osrmUrl = `https://router.project-osrm.org/route/v1/foot/${coordString}?overview=full&geometries=geojson&steps=true`;
+  // 2. Check for user-configured external API keys in localStorage or env
+  const config = getStoredRoutingConfig();
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6500); // 6.5s timeout
-
-    const res = await fetch(osrmUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        // OSRM returns GeoJSON coordinates as [lng, lat], convert to [lat, lng] for internal format
-        const coordinates: [number, number][] = route.geometry.coordinates.map(
-          ([lng, lat]: [number, number]) => [lat, lng]
-        );
-
-        const legs = route.legs.map((leg: any, idx: number) => {
-          const fromName = stops[idx]?.name || `Stop ${idx + 1}`;
-          const toName = stops[idx + 1]?.name || `Stop ${idx + 2}`;
-          const instructions: string[] = (leg.steps || [])
-            .map((step: any) => {
-              const name = step.name ? ` on ${step.name}` : '';
-              const type = step.maneuver?.type || 'turn';
-              const modifier = step.maneuver?.modifier ? ` ${step.maneuver.modifier}` : '';
-              return `${type}${modifier}${name} (${Math.round(step.distance)} m)`;
-            })
-            .filter(Boolean);
-
-          return {
-            fromName,
-            toName,
-            distanceMeters: Math.round(leg.distance),
-            timeMinutes: Math.max(1, Math.round(leg.duration / 60)),
-            instructions: instructions.length > 0 ? instructions : [`Walk towards ${toName}`],
-          };
-        });
-
-        const metroTransferAdvice = generateMetroAdvice(stops);
-
-        return {
-          coordinates,
-          totalDistanceMeters: Math.round(route.distance),
-          totalTimeMinutes: Math.max(1, Math.round(route.duration / 60)),
-          legs,
-          metroTransferAdvice,
-          source: 'osrm',
-        };
+  if (config.apiKey) {
+    try {
+      if (config.provider === 'ors') {
+        const orsResult = await fetchOpenRouteServiceRoute(stops, config.apiKey);
+        if (orsResult) return orsResult;
+      } else if (config.provider === 'geoapify') {
+        const geoResult = await fetchGeoapifyRoute(stops, config.apiKey);
+        if (geoResult) return geoResult;
+      } else if (config.provider === 'mapbox') {
+        const mapboxResult = await fetchMapboxRoute(stops, config.apiKey);
+        if (mapboxResult) return mapboxResult;
       }
+    } catch (apiErr) {
+      console.warn(`Configured routing provider (${config.provider}) failed, falling back to OSM mirrors:`, apiErr);
     }
-  } catch (err) {
-    console.warn('OSRM pedestrian route fetch failed or timed out, using honest approximate route:', err);
   }
 
-  // Honest Fallback: Straight-line distance with 1.25x street grid detour factor
+  // 3. Fast OSM Mirrored Foot Routing (OSM-DE + Project OSRM)
+  const coordString = stops.map((s) => `${s.lng},${s.lat}`).join(';');
+  const mirrors = [
+    // Primary fast OSM mirror
+    `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${coordString}?overview=full&geometries=geojson`,
+    // Secondary public OSRM mirror
+    `https://router.project-osrm.org/route/v1/foot/${coordString}?overview=full&geometries=geojson`,
+  ];
+
+  for (const url of mirrors) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3800); // 3.8s timeout per mirror
+
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const coordinates: [number, number][] = route.geometry.coordinates.map(
+            ([lng, lat]: [number, number]) => [lat, lng]
+          );
+
+          const legs = (route.legs || []).map((leg: any, idx: number) => {
+            const fromName = stops[idx]?.name || `Stop ${idx + 1}`;
+            const toName = stops[idx + 1]?.name || `Stop ${idx + 2}`;
+            const dist = Math.round(leg.distance || calculateHaversineDistance(stops[idx].lat, stops[idx].lng, stops[idx + 1]?.lat || stops[idx].lat, stops[idx + 1]?.lng || stops[idx].lng));
+            const timeMin = Math.max(1, Math.round((leg.duration || dist / 1.25) / 60));
+
+            return {
+              fromName,
+              toName,
+              distanceMeters: dist,
+              timeMinutes: timeMin,
+              instructions: [
+                `Walk from ${fromName} to ${toName} (~${dist} m)`,
+                `Follow street path (est. ${timeMin} min walk)`
+              ],
+            };
+          });
+
+          // Fill any missing legs if OSRM returned fewer legs
+          while (legs.length < stops.length - 1) {
+            const idx = legs.length;
+            const from = stops[idx];
+            const to = stops[idx + 1];
+            const d = Math.round(calculateHaversineDistance(from.lat, from.lng, to.lat, to.lng) * 1.25);
+            legs.push({
+              fromName: from.name,
+              toName: to.name,
+              distanceMeters: d,
+              timeMinutes: Math.max(1, Math.round(d / 75)),
+              instructions: [`Walk towards ${to.name} (~${d} m)`],
+            });
+          }
+
+          const metroTransferAdvice = generateMetroAdvice(stops);
+
+          return {
+            coordinates,
+            totalDistanceMeters: Math.round(route.distance),
+            totalTimeMinutes: Math.max(1, Math.round((route.duration || route.distance / 1.25) / 60)),
+            legs,
+            metroTransferAdvice,
+            source: 'osrm',
+          };
+        }
+      }
+    } catch {
+      // Continue to next mirror or pairwise fallback
+    }
+  }
+
+  // 4. Pairwise Segment Routing Fallback (robust when a 10-stop request fails on 1 waypoint)
+  try {
+    const pairResult = await fetchPairwiseRoute(stops);
+    if (pairResult) return pairResult;
+  } catch (pairErr) {
+    console.warn('Pairwise route resolution fallback:', pairErr);
+  }
+
+  // 5. Honest Local Geometry Fallback (Urban street detour factor)
   return createFallbackRoute(stops);
+}
+
+/**
+ * Routes pairs of consecutive stops concurrently to guarantee road network snapping
+ */
+async function fetchPairwiseRoute(stops: RouteStop[]): Promise<RouteResult | null> {
+  if (stops.length < 2) return null;
+
+  const legPromises = [];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const s1 = stops[i];
+    const s2 = stops[i + 1];
+    const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${s1.lng},${s1.lat};${s2.lng},${s2.lat}?overview=full&geometries=geojson`;
+
+    legPromises.push(
+      fetch(url, { signal: AbortSignal.timeout(2500) })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.code === 'Ok' && data.routes?.[0]) {
+            const r = data.routes[0];
+            return {
+              coords: r.geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]),
+              distance: Math.round(r.distance),
+              duration: Math.round(r.duration / 60),
+            };
+          }
+          return null;
+        })
+        .catch(() => null)
+    );
+  }
+
+  const results = await Promise.all(legPromises);
+  const coordinates: [number, number][] = [];
+  const legs: RouteResult['legs'] = [];
+  let totalDist = 0;
+  let totalDur = 0;
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    const s1 = stops[i];
+    const s2 = stops[i + 1];
+    const r = results[i];
+
+    if (r && r.coords.length > 0) {
+      if (coordinates.length === 0) {
+        coordinates.push(...r.coords);
+      } else {
+        coordinates.push(...r.coords.slice(1));
+      }
+      totalDist += r.distance;
+      totalDur += r.duration;
+      legs.push({
+        fromName: s1.name,
+        toName: s2.name,
+        distanceMeters: r.distance,
+        timeMinutes: Math.max(1, r.duration),
+        instructions: [`Walk to ${s2.name} (${r.distance} m, ~${r.duration} min)`],
+      });
+    } else {
+      // Approximate single leg
+      const straight = calculateHaversineDistance(s1.lat, s1.lng, s2.lat, s2.lng);
+      const estDist = Math.round(straight * 1.25);
+      const estTime = Math.max(1, Math.round(estDist / 75));
+      totalDist += estDist;
+      totalDur += estTime;
+      coordinates.push([s1.lat, s1.lng], [(s1.lat + s2.lat) / 2, (s1.lng + s2.lng) / 2], [s2.lat, s2.lng]);
+      legs.push({
+        fromName: s1.name,
+        toName: s2.name,
+        distanceMeters: estDist,
+        timeMinutes: estTime,
+        instructions: [`Walk towards ${s2.name} (~${estDist} m)`],
+      });
+    }
+  }
+
+  return {
+    coordinates,
+    totalDistanceMeters: totalDist,
+    totalTimeMinutes: Math.max(1, totalDur),
+    legs,
+    metroTransferAdvice: generateMetroAdvice(stops),
+    source: 'osrm',
+  };
 }
 
 /**
@@ -248,3 +381,145 @@ export function getGoogleMapsDirectionsUrl(stops: RouteStop[]): string {
     waypoints
   )}&travelmode=walking`;
 }
+
+export interface RoutingProviderConfig {
+  provider: 'osm' | 'ors' | 'geoapify' | 'mapbox';
+  apiKey: string | null;
+}
+
+const STORAGE_KEY_ROUTING_PROVIDER = 'pujopath_routing_provider';
+const STORAGE_KEY_ROUTING_KEY = 'pujopath_routing_api_key';
+
+export function getStoredRoutingConfig(): RoutingProviderConfig {
+  if (typeof window === 'undefined') {
+    return { provider: 'osm', apiKey: null };
+  }
+  const provider = (localStorage.getItem(STORAGE_KEY_ROUTING_PROVIDER) || 'osm') as RoutingProviderConfig['provider'];
+  const envKey = (import.meta as any).env?.VITE_ROUTING_API_KEY || null;
+  const apiKey = localStorage.getItem(STORAGE_KEY_ROUTING_KEY) || envKey;
+  return { provider, apiKey };
+}
+
+export function setStoredRoutingConfig(provider: RoutingProviderConfig['provider'], apiKey: string | null): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY_ROUTING_PROVIDER, provider);
+  if (apiKey) {
+    localStorage.setItem(STORAGE_KEY_ROUTING_KEY, apiKey);
+  } else {
+    localStorage.removeItem(STORAGE_KEY_ROUTING_KEY);
+  }
+}
+
+/**
+ * OpenRouteService (ORS) integration (Free tier: 2000 req/day)
+ */
+async function fetchOpenRouteServiceRoute(stops: RouteStop[], apiKey: string): Promise<RouteResult | null> {
+  const coords = stops.map((s) => [s.lng, s.lat]);
+  const url = 'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ coordinates: coords }),
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  const feature = data.features?.[0];
+  if (!feature) return null;
+
+  const coordinates: [number, number][] = feature.geometry.coordinates.map(
+    ([lng, lat]: [number, number]) => [lat, lng]
+  );
+  const summary = feature.properties?.summary;
+  const totalDist = Math.round(summary?.distance || 0);
+  const totalTime = Math.max(1, Math.round((summary?.duration || 0) / 60));
+
+  const legs = feature.properties?.segments?.map((seg: any, idx: number) => ({
+    fromName: stops[idx]?.name || `Stop ${idx + 1}`,
+    toName: stops[idx + 1]?.name || `Stop ${idx + 2}`,
+    distanceMeters: Math.round(seg.distance),
+    timeMinutes: Math.max(1, Math.round(seg.duration / 60)),
+    instructions: [`Walk to ${stops[idx + 1]?.name || 'next stop'} (${Math.round(seg.distance)} m)`],
+  })) || [];
+
+  return {
+    coordinates,
+    totalDistanceMeters: totalDist,
+    totalTimeMinutes: totalTime,
+    legs,
+    metroTransferAdvice: generateMetroAdvice(stops),
+    source: 'osrm',
+  };
+}
+
+/**
+ * Geoapify Routing API (Free tier: 3000 credits/day)
+ */
+async function fetchGeoapifyRoute(stops: RouteStop[], apiKey: string): Promise<RouteResult | null> {
+  const waypoints = stops.map((s) => `${s.lat},${s.lng}`).join('|');
+  const url = `https://api.geoapify.com/v1/routing?waypoints=${waypoints}&mode=walk&apiKey=${apiKey}`;
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const feature = data.features?.[0];
+  if (!feature) return null;
+
+  const rawCoords = feature.geometry?.coordinates?.[0] || feature.geometry?.coordinates || [];
+  const coordinates: [number, number][] = rawCoords.map(([lng, lat]: [number, number]) => [lat, lng]);
+  const props = feature.properties;
+
+  return {
+    coordinates,
+    totalDistanceMeters: Math.round(props.distance || 0),
+    totalTimeMinutes: Math.max(1, Math.round((props.time || 0) / 60)),
+    legs: (props.legs || []).map((leg: any, idx: number) => ({
+      fromName: stops[idx]?.name || `Stop ${idx + 1}`,
+      toName: stops[idx + 1]?.name || `Stop ${idx + 2}`,
+      distanceMeters: Math.round(leg.distance),
+      timeMinutes: Math.max(1, Math.round(leg.time / 60)),
+      instructions: [`Walk to ${stops[idx + 1]?.name || 'next stop'}`],
+    })),
+    metroTransferAdvice: generateMetroAdvice(stops),
+    source: 'osrm',
+  };
+}
+
+/**
+ * Mapbox Directions API (Free tier: 100k req/month)
+ */
+async function fetchMapboxRoute(stops: RouteStop[], apiKey: string): Promise<RouteResult | null> {
+  const coordString = stops.map((s) => `${s.lng},${s.lat}`).join(';');
+  const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coordString}?geometries=geojson&access_token=${apiKey}`;
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const route = data.routes?.[0];
+  if (!route) return null;
+
+  const coordinates: [number, number][] = route.geometry.coordinates.map(
+    ([lng, lat]: [number, number]) => [lat, lng]
+  );
+
+  return {
+    coordinates,
+    totalDistanceMeters: Math.round(route.distance),
+    totalTimeMinutes: Math.max(1, Math.round(route.duration / 60)),
+    legs: (route.legs || []).map((leg: any, idx: number) => ({
+      fromName: stops[idx]?.name || `Stop ${idx + 1}`,
+      toName: stops[idx + 1]?.name || `Stop ${idx + 2}`,
+      distanceMeters: Math.round(leg.distance),
+      timeMinutes: Math.max(1, Math.round(leg.duration / 60)),
+      instructions: [`Walk to ${stops[idx + 1]?.name || 'next stop'}`],
+    })),
+    metroTransferAdvice: generateMetroAdvice(stops),
+    source: 'osrm',
+  };
+}
+

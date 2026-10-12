@@ -22,7 +22,12 @@ import {
   saveNightPlan,
   clearSavedNightPlan,
 } from '../services/storageService';
-import { getGoogleMapsDirectionsUrl } from '../services/routingService';
+import {
+  getGoogleMapsDirectionsUrl,
+  getStoredRoutingConfig,
+  setStoredRoutingConfig,
+  RoutingProviderConfig,
+} from '../services/routingService';
 import {
   NightPlanIcon,
   RouteIcon,
@@ -99,6 +104,22 @@ export function NightPlanner({
   const [stationSearch, setStationSearch] = useState('');
   const [pandalStartSearch, setPandalStartSearch] = useState('');
 
+  // Mobile Sheet Expanded vs Peek (Minimized Map View)
+  const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(true);
+
+  // Routing Provider & API Key Modal State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [routingProvider, setRoutingProvider] = useState<RoutingProviderConfig['provider']>('osm');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeySavedStatus, setApiKeySavedStatus] = useState<string | null>(null);
+
+  // Load configured routing engine on mount
+  useEffect(() => {
+    const cfg = getStoredRoutingConfig();
+    setRoutingProvider(cfg.provider);
+    setApiKeyInput(cfg.apiKey || '');
+  }, []);
+
   // Active highlighted stop
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
@@ -111,57 +132,60 @@ export function NightPlanner({
   }, [currentNightPlan]);
 
   // Request GPS Location for start point
-  const handleAcquireGps = useCallback(() => {
-    if (!navigator.geolocation) {
-      setGpsStatus('denied');
-      setGpsErrorMsg('Geolocation is not supported by your browser.');
-      return;
-    }
-
-    setIsLocating(true);
-    setGpsStatus('locating');
-    setGpsErrorMsg(null);
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setIsLocating(false);
-        const { latitude, longitude } = pos.coords;
-
-        // Find nearest Metro station to user for human-readable label
-        let nearestStation = METRO_STATIONS[0];
-        let minDist = Infinity;
-        METRO_STATIONS.forEach((st) => {
-          const d = Math.hypot(st.lat - latitude, st.lng - longitude);
-          if (d < minDist) {
-            minDist = d;
-            nearestStation = st;
-          }
-        });
-
-        const label = `Near ${nearestStation.name} (GPS)`;
-        setConfig((prev) => ({
-          ...prev,
-          startType: 'current-location',
-          startCoords: {
-            lat: latitude,
-            lng: longitude,
-            label,
-            bengaliLabel: nearestStation.bengaliName ? `${nearestStation.bengaliName}-এর কাছে` : undefined,
-          },
-        }));
-        setGpsStatus('success');
-      },
-      (err) => {
-        setIsLocating(false);
+  const handleAcquireGps = useCallback((): Promise<{ lat: number; lng: number; label: string; bengaliLabel?: string }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
         setGpsStatus('denied');
-        setGpsErrorMsg(
-          err.code === 1
-            ? 'Location permission denied. Please pick a Metro station or pandal instead.'
-            : 'Unable to acquire GPS location. Please try again or select a station.'
-        );
-      },
-      { enableHighAccuracy: true, timeout: 9000 }
-    );
+        setGpsErrorMsg('Geolocation is not supported by your browser.');
+        reject(new Error('Geolocation is not supported by your browser.'));
+        return;
+      }
+
+      setIsLocating(true);
+      setGpsStatus('locating');
+      setGpsErrorMsg(null);
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setIsLocating(false);
+          const { latitude, longitude } = pos.coords;
+
+          // Find nearest Metro station to user for human-readable label
+          let nearestStation = METRO_STATIONS[0];
+          let minDist = Infinity;
+          METRO_STATIONS.forEach((st) => {
+            const d = Math.hypot(st.lat - latitude, st.lng - longitude);
+            if (d < minDist) {
+              minDist = d;
+              nearestStation = st;
+            }
+          });
+
+          const label = `Near ${nearestStation.name} (GPS)`;
+          const bengaliLabel = nearestStation.bengaliName ? `${nearestStation.bengaliName}-এর কাছে` : undefined;
+          const coords = { lat: latitude, lng: longitude, label, bengaliLabel };
+
+          setConfig((prev) => ({
+            ...prev,
+            startType: 'current-location',
+            startCoords: coords,
+          }));
+          setGpsStatus('success');
+          resolve(coords);
+        },
+        (err) => {
+          setIsLocating(false);
+          setGpsStatus('denied');
+          const msg =
+            err.code === 1
+              ? 'Location permission denied. Please pick a Metro station or pandal instead.'
+              : 'Unable to acquire GPS location. Please try again or select a station.';
+          setGpsErrorMsg(msg);
+          reject(new Error(msg));
+        },
+        { enableHighAccuracy: true, timeout: 9000 }
+      );
+    });
   }, []);
 
   // Generate Itinerary
@@ -170,16 +194,29 @@ export function NightPlanner({
     setErrorMessage(null);
 
     try {
-      // Validate start point if GPS
+      let activeConfig = config;
+
+      // Validate and automatically acquire GPS if startType is current-location
       if (config.startType === 'current-location' && !config.startCoords) {
-        handleAcquireGps();
-        setIsGenerating(false);
-        return;
+        try {
+          const coords = await handleAcquireGps();
+          activeConfig = {
+            ...config,
+            startCoords: coords,
+          };
+        } catch (gpsErr: any) {
+          setIsGenerating(false);
+          setErrorMessage(gpsErr.message || 'Location permission required for Current Location.');
+          return;
+        }
       }
 
-      const plan = await generateNightPlan(config, allPandals);
+      const plan = await generateNightPlan(activeConfig, allPandals);
       onUpdateNightPlan(plan);
       setIsConfigExpanded(false); // Collapse form to reveal itinerary
+      if (isMobileSheet) {
+        setIsMobileExpanded(true); // Keep expanded initially so user sees the plan
+      }
     } catch (err: any) {
       console.error('Error generating night plan:', err);
       setErrorMessage(err.message || 'Could not generate route. Please try another starting point.');
@@ -370,40 +407,122 @@ export function NightPlanner({
   return (
     <div
       className={`kpn-night-planner-container ${
-        isMobileSheet ? 'kpn-planner-mobile-sheet' : 'kpn-planner-desktop'
+        isMobileSheet
+          ? `kpn-planner-mobile-sheet ${isMobileExpanded ? 'is-expanded' : 'is-peek'}`
+          : 'kpn-planner-desktop'
       }`}
     >
-      {/* 1. TOP HEADER */}
-      <div className="kpn-night-header">
-        <div className="kpn-night-title-row">
-          <div className="kpn-night-badge-glow">
-            <NightPlanIcon size={22} className="kpn-night-icon" />
-          </div>
-          <div>
-            <h2 className="kpn-night-title">Pujo Night Planner</h2>
-            <p className="kpn-night-subtitle">Plan your perfect Durga Puja night.</p>
-          </div>
-        </div>
-
-        {currentNightPlan && (
-          <button
-            type="button"
-            className="kpn-pill-toggle-btn"
-            onClick={handleToggleConfig}
-            aria-expanded={isConfigExpanded}
-            id="toggle-plan-config-btn"
-          >
-            <span>{isConfigExpanded ? 'Hide Setup' : 'Tweak Setup'}</span>
-            {isConfigExpanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
-          </button>
-        )}
-      </div>
-
-      {saveToast && (
-        <div className="kpn-planner-toast" role="status">
-          <span>✓ {saveToast}</span>
+      {/* 0. MOBILE DRAG HANDLE */}
+      {isMobileSheet && (
+        <div
+          className="kpn-sheet-drag-handle"
+          onClick={() => setIsMobileExpanded(!isMobileExpanded)}
+          role="button"
+          tabIndex={0}
+          aria-label={isMobileExpanded ? 'Minimize to view interactive map' : 'Expand itinerary planner'}
+          id="planner-mobile-drag-handle"
+        >
+          <span className="kpn-drag-bar" />
         </div>
       )}
+
+      {/* MOBILE PEEK SUMMARY BAR (Minimized Map View) */}
+      {isMobileSheet && !isMobileExpanded && (
+        <div
+          className="kpn-planner-peek-summary"
+          onClick={() => setIsMobileExpanded(true)}
+          role="button"
+          tabIndex={0}
+          id="planner-mobile-peek-bar"
+        >
+          <div className="kpn-peek-title-group">
+            <div className="kpn-night-badge-glow" style={{ width: 34, height: 34, fontSize: 16 }}>
+              🌙
+            </div>
+            <div>
+              <strong>Pujo Night Route</strong>
+              <div className="kpn-peek-stats">
+                {currentNightPlan
+                  ? `${currentNightPlan.totalStops} Pandals · ${formatMinutes(currentNightPlan.totalDurationMinutes)} · ~${(currentNightPlan.totalWalkingDistanceMeters / 1000).toFixed(1)} km`
+                  : 'Ready to configure route'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="kpn-planner-map-toggle-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMobileExpanded(true);
+            }}
+            id="planner-open-plan-btn"
+          >
+            <span>📝 Open Plan</span>
+          </button>
+        </div>
+      )}
+
+      {/* FULL PLANNER CONTENT (Shown when expanded or on desktop) */}
+      {(!isMobileSheet || isMobileExpanded) && (
+        <>
+          {/* 1. TOP HEADER */}
+          <div className="kpn-night-header">
+            <div className="kpn-night-title-row">
+              <div className="kpn-night-badge-glow">
+                <NightPlanIcon size={22} className="kpn-night-icon" />
+              </div>
+              <div>
+                <h2 className="kpn-night-title">Pujo Night Planner</h2>
+                <p className="kpn-night-subtitle">Optimized pandal route with walking & Metro corridors.</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isMobileSheet && (
+                <button
+                  type="button"
+                  className="kpn-pill-toggle-btn"
+                  onClick={() => {
+                    setIsMobileExpanded(false);
+                    onViewOnMap?.();
+                  }}
+                  id="planner-view-on-map-btn"
+                  title="Minimize sheet to view map"
+                >
+                  <span>🗺️ Map</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="kpn-pill-toggle-btn"
+                onClick={() => setIsSettingsOpen(true)}
+                id="planner-open-routing-engine-btn"
+                title="Routing Engine & API Key Settings"
+              >
+                <span>⚙️ Engine</span>
+              </button>
+
+              {currentNightPlan && (
+                <button
+                  type="button"
+                  className="kpn-pill-toggle-btn"
+                  onClick={handleToggleConfig}
+                  aria-expanded={isConfigExpanded}
+                  id="toggle-plan-config-btn"
+                >
+                  <span>{isConfigExpanded ? 'Hide' : 'Tweak'}</span>
+                  {isConfigExpanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {saveToast && (
+            <div className="kpn-planner-toast" role="status">
+              <span>✓ {saveToast}</span>
+            </div>
+          )}
 
       {/* 2. CONFIGURATION SETUP FLOW (Progressive Disclosure) */}
       {isConfigExpanded && (
@@ -1260,6 +1379,129 @@ export function NightPlanner({
             Choose your starting point, time available, and artistic preferences above. We’ll generate
             an optimized walking & Metro route that minimizes backtracking!
           </p>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* 4. ROUTING PROVIDER & API KEY MODAL */}
+      {isSettingsOpen && (
+        <div className="kpn-filter-drawer-overlay" role="dialog" aria-modal="true" onClick={() => setIsSettingsOpen(false)}>
+          <div className="kpn-settings-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="kpn-drawer-head">
+              <div className="kpn-drawer-title-wrap">
+                <h3>Routing Engine & API Key</h3>
+                <span className="kpn-drawer-sub">Live pedestrian pathing for Kolkata Durga Puja hopping</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="kpn-drawer-close"
+                aria-label="Close dialog"
+                id="close-routing-settings-btn"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="kpn-drawer-body">
+              <label className="kpn-filter-label">Select Active Routing Provider:</label>
+
+              <div className="kpn-provider-options">
+                <label className={`kpn-provider-radio-card ${routingProvider === 'osm' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="routingProvider"
+                    checked={routingProvider === 'osm'}
+                    onChange={() => setRoutingProvider('osm')}
+                  />
+                  <div>
+                    <strong>Fast OpenStreetMap & OSRM Mirrors (Recommended)</strong>
+                    <small>No API key required. Snaps walking paths along Kolkata streets via high-speed European OSM mirrors with 100% offline fallback.</small>
+                  </div>
+                </label>
+
+                <label className={`kpn-provider-radio-card ${routingProvider === 'ors' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="routingProvider"
+                    checked={routingProvider === 'ors'}
+                    onChange={() => setRoutingProvider('ors')}
+                  />
+                  <div>
+                    <strong>OpenRouteService (ORS)</strong>
+                    <small>Free key available at openrouteservice.org. 2,000 requests/day with precise footways and walking directions.</small>
+                  </div>
+                </label>
+
+                <label className={`kpn-provider-radio-card ${routingProvider === 'geoapify' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="routingProvider"
+                    checked={routingProvider === 'geoapify'}
+                    onChange={() => setRoutingProvider('geoapify')}
+                  />
+                  <div>
+                    <strong>Geoapify Routing API</strong>
+                    <small>Free key at geoapify.com. 3,000 credits/day with excellent urban pedestrian routing geometries.</small>
+                  </div>
+                </label>
+
+                <label className={`kpn-provider-radio-card ${routingProvider === 'mapbox' ? 'is-active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="routingProvider"
+                    checked={routingProvider === 'mapbox'}
+                    onChange={() => setRoutingProvider('mapbox')}
+                  />
+                  <div>
+                    <strong>Mapbox Directions API</strong>
+                    <small>Free access token at mapbox.com (100,000 free requests/month) for worldwide high-fidelity pedestrian routing.</small>
+                  </div>
+                </label>
+              </div>
+
+              {routingProvider !== 'osm' && (
+                <div className="kpn-api-key-input-wrap">
+                  <label className="kpn-filter-label">Enter your {routingProvider.toUpperCase()} Key / Token:</label>
+                  <input
+                    type="text"
+                    className="kpn-native-select"
+                    style={{ background: '#FFFFFF', padding: '8px 10px' }}
+                    placeholder={`Paste your ${routingProvider.toUpperCase()} API key here...`}
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    id="routing-api-key-input"
+                  />
+                  <small className="kpn-hint-text">
+                    Saved directly into browser localStorage.
+                  </small>
+                </div>
+              )}
+
+              {apiKeySavedStatus && (
+                <div className="kpn-settings-saved-badge">✓ {apiKeySavedStatus}</div>
+              )}
+
+              <div className="kpn-settings-actions">
+                <button
+                  type="button"
+                  className="kpn-btn-primary-action"
+                  onClick={() => {
+                    setStoredRoutingConfig(routingProvider, apiKeyInput.trim() || null);
+                    setApiKeySavedStatus('Settings saved successfully!');
+                    setTimeout(() => {
+                      setApiKeySavedStatus(null);
+                      setIsSettingsOpen(false);
+                    }, 1000);
+                  }}
+                  id="save-routing-settings-btn"
+                >
+                  Save & Apply Engine
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

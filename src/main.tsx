@@ -565,8 +565,12 @@ export function App() {
                   }
                 }}
                 onViewOnMap={() => {
-                  if (nightPlan?.stops[0]) {
-                    setFlyToTarget({ lat: nightPlan.stops[0].lat, lng: nightPlan.stops[0].lng, zoom: 15.5 });
+                  if (nightPlan && nightPlan.stops.length > 0) {
+                    const lats = nightPlan.stops.map((s) => s.lat);
+                    const lngs = nightPlan.stops.map((s) => s.lng);
+                    const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+                    const avgLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+                    setFlyToTarget({ lat: avgLat, lng: avgLng, zoom: 14.5 });
                   }
                 }}
                 isMobileSheet={false}
@@ -707,8 +711,12 @@ export function App() {
                   }
                 }}
                 onViewOnMap={() => {
-                  if (nightPlan?.stops[0]) {
-                    setFlyToTarget({ lat: nightPlan.stops[0].lat, lng: nightPlan.stops[0].lng, zoom: 15.5 });
+                  if (nightPlan && nightPlan.stops.length > 0) {
+                    const lats = nightPlan.stops.map((s) => s.lat);
+                    const lngs = nightPlan.stops.map((s) => s.lng);
+                    const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+                    const avgLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+                    setFlyToTarget({ lat: avgLat, lng: avgLng, zoom: 14.5 });
                   }
                 }}
                 isMobileSheet={true}

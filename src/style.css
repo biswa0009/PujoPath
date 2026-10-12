@@ -797,8 +797,9 @@ img {
   }
 }
 
-.kpn-route-mobile-sheet {
-  pointer-events: auto;
+.kpn-route-mobile-sheet,
+.kpn-planner-mobile-sheet {
+  pointer-events: auto !important;
   background: var(--ivory-surface);
   border-top: 1px solid var(--ivory-border);
   box-shadow: var(--shadow-sheet);
@@ -814,13 +815,14 @@ img {
   max-height: 85vh;
 }
 
-
-.kpn-route-mobile-sheet.is-peek {
-  height: 250px;
+.kpn-route-mobile-sheet.is-peek,
+.kpn-planner-mobile-sheet.is-peek {
+  height: 220px;
   overflow-y: hidden;
 }
 
-.kpn-route-mobile-sheet.is-expanded {
+.kpn-route-mobile-sheet.is-expanded,
+.kpn-planner-mobile-sheet.is-expanded {
   height: 82vh;
   overflow-y: auto;
 }
@@ -4031,6 +4033,7 @@ img {
   height: 100%;
   background: var(--ivory-bg);
   color: var(--text-main);
+  pointer-events: auto !important;
 }
 
 .kpn-planner-desktop {
@@ -4040,10 +4043,60 @@ img {
 }
 
 .kpn-planner-mobile-sheet {
+  pointer-events: auto !important;
   overflow-y: auto;
-  padding: 16px 14px calc(var(--bottom-nav-height) + 24px) 14px;
-  height: 100%;
+  padding: 8px 14px calc(var(--bottom-nav-height) + 28px) 14px;
   -webkit-overflow-scrolling: touch;
+}
+
+.kpn-planner-mobile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 10px;
+  border-bottom: 1px solid var(--ivory-border);
+  margin-bottom: 8px;
+}
+
+.kpn-planner-map-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--vermilion);
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(181, 39, 39, 0.25);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.kpn-planner-map-toggle-btn:active {
+  transform: scale(0.96);
+}
+
+.kpn-planner-peek-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+
+.kpn-peek-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kpn-peek-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 /* Header */
@@ -5290,6 +5343,97 @@ img {
     max-width: 72px;
     justify-content: flex-end;
   }
+}
+
+/* ========================================================
+   ROUTING PROVIDER & API KEY MODAL
+   ======================================================== */
+
+.kpn-settings-modal-card {
+  background: var(--ivory-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  width: 92%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border: 1px solid var(--ivory-border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: kpnModalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kpn-provider-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.kpn-provider-radio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--ivory-border);
+  background: var(--ivory-bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kpn-provider-radio-card.is-active {
+  border-color: var(--vermilion);
+  background: #FFF5F5;
+  box-shadow: 0 2px 8px rgba(181, 39, 39, 0.12);
+}
+
+.kpn-provider-radio-card input {
+  margin-top: 3px;
+  accent-color: var(--vermilion);
+}
+
+.kpn-provider-radio-card strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.kpn-provider-radio-card small {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.kpn-api-key-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #FDFBF7;
+  border: 1px dashed var(--ivory-border);
+  border-radius: var(--radius-md);
+}
+
+.kpn-settings-saved-badge {
+  background: #E6F4EA;
+  color: #137333;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.kpn-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 
