@@ -827,6 +827,115 @@ img {
   overflow-y: auto;
 }
 
+/* ========================================================
+   UNIFIED 3-STATE GESTURE-CONTROLLED BOTTOM SHEET
+   ======================================================== */
+.kpn-unified-bottom-sheet {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 88vh;
+  max-height: 88vh;
+  pointer-events: auto !important;
+  background: var(--ivory-surface);
+  border-top: 1px solid var(--ivory-border);
+  box-shadow: 0 -8px 32px rgba(44, 24, 16, 0.18);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 600;
+  will-change: transform;
+  touch-action: pan-y;
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 12px));
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  .kpn-unified-bottom-sheet {
+    display: none !important;
+  }
+}
+
+.kpn-sheet-drag-touch-area {
+  width: 100%;
+  padding: 10px 0 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.kpn-sheet-drag-touch-area:active {
+  cursor: grabbing;
+}
+
+.kpn-drag-bar {
+  width: 44px;
+  height: 5px;
+  border-radius: 4px;
+  background: rgba(100, 60, 40, 0.3);
+  transition: background 0.2s ease, width 0.2s ease;
+}
+
+.kpn-sheet-drag-touch-area:hover .kpn-drag-bar {
+  background: rgba(100, 60, 40, 0.5);
+  width: 52px;
+}
+
+.kpn-sheet-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 8px 16px;
+  border-bottom: 1px solid var(--ivory-border);
+  gap: 12px;
+  user-select: none;
+  touch-action: none;
+}
+
+.kpn-sheet-top-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.kpn-sheet-state-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.kpn-sheet-state-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ivory-bg);
+  border: 1px solid var(--ivory-border);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kpn-sheet-state-btn:hover {
+  background: var(--ivory-card);
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+}
+
+.kpn-sheet-inner-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+}
+
 .kpn-explore-sheet {
   pointer-events: auto;
   background: var(--ivory-surface);
@@ -835,18 +944,9 @@ img {
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   display: flex;
   flex-direction: column;
-  transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
   position: relative;
-  max-height: 82vh;
-}
-
-.kpn-explore-sheet.is-peek {
-  height: 290px;
-}
-
-.kpn-explore-sheet.is-expanded {
-  height: 80vh;
+  height: 100%;
 }
 
 @media (min-width: 1024px) {
@@ -5435,5 +5535,543 @@ img {
   gap: 10px;
   margin-top: 10px;
 }
+
+/* ========================================================
+   10. SPOTLIGHT CARD (SELECTED PANDAL IN BOTTOM SHEET)
+   ======================================================== */
+.kpn-spotlight-card {
+  margin: 10px 14px 14px 14px;
+  padding: 14px;
+  background: linear-gradient(135deg, #FFFDF9 0%, #FFF8EE 100%);
+  border: 1.5px solid var(--gold);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(197, 155, 39, 0.14);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: kpnSpotlightFade 0.22s ease-out;
+}
+
+@keyframes kpnSpotlightFade {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kpn-spotlight-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kpn-spotlight-top-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  background: var(--gold-bg);
+  border: 1px solid var(--gold);
+  color: var(--maroon);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.kpn-spotlight-deselect-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: var(--ivory-muted-bg);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kpn-spotlight-deselect-btn:hover {
+  background: var(--vermilion-soft);
+  color: var(--vermilion);
+}
+
+.kpn-spotlight-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kpn-spotlight-name {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--maroon);
+  line-height: 1.25;
+  margin: 0;
+}
+
+.kpn-spotlight-bn {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.kpn-spotlight-loc {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+
+.kpn-spotlight-theme {
+  font-size: 12px;
+  color: var(--text-main);
+  line-height: 1.35;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--gold);
+  margin-top: 4px;
+}
+
+.kpn-spotlight-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ivory-border);
+}
+
+.kpn-btn-spotlight-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--ivory-surface);
+  border: 1px solid var(--ivory-border);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 32px;
+}
+
+.kpn-btn-spotlight-action:hover {
+  border-color: var(--maroon);
+  color: var(--maroon);
+}
+
+.kpn-btn-spotlight-action.is-primary {
+  background: var(--maroon);
+  border-color: var(--maroon);
+  color: #FFFFFF;
+}
+
+.kpn-btn-spotlight-action.is-added {
+  background: #E6F4EA;
+  border-color: #34A853;
+  color: #137333;
+}
+
+.kpn-btn-spotlight-action.is-fav {
+  background: #FCE8E6;
+  border-color: var(--vermilion);
+  color: var(--vermilion);
+}
+
+.kpn-btn-spotlight-action.is-external {
+  color: var(--metro-blue);
+  border-color: rgba(0, 98, 177, 0.3);
+}
+
+/* ========================================================
+   11. EXPLORE & NIGHT PLANNER COLLAPSED PREVIEWS
+   ======================================================== */
+.kpn-explore-collapsed-bar,
+.kpn-planner-collapsed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  cursor: pointer;
+  user-select: none;
+}
+
+.kpn-collapsed-info,
+.kpn-peek-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kpn-collapsed-main,
+.kpn-peek-main-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kpn-collapsed-sub,
+.kpn-peek-stats {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kpn-btn-expand-hint,
+.kpn-peek-action-btn {
+  padding: 5px 12px;
+  background: var(--maroon);
+  color: #FFFFFF;
+  border-radius: var(--radius-full);
+  font-size: 11.5px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.kpn-btn-expand-hint:hover,
+.kpn-peek-action-btn:hover {
+  background: var(--maroon-dark);
+}
+
+/* ========================================================
+   12. SEARCHABLE METRO & DESTINATION PICKERS
+   ======================================================== */
+.kpn-selected-station-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--ivory-surface);
+  border: 1.5px solid var(--ivory-border);
+  border-radius: var(--radius-md);
+}
+
+.kpn-station-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kpn-line-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  color: #FFFFFF;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.kpn-line-badge-sm {
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  color: #FFFFFF;
+  font-size: 9.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.kpn-bn-label {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.kpn-station-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--text-sub);
+  margin-top: 1px;
+}
+
+.kpn-btn-change-station {
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  background: var(--ivory-muted-bg);
+  border: 1px solid var(--ivory-border);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--maroon);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.kpn-searchable-station-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--ivory-surface);
+  border: 1.5px solid var(--ivory-border);
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+
+.kpn-station-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--ivory-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ivory-border);
+}
+
+.kpn-station-search-input-wrap input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12.5px;
+  color: var(--text-main);
+}
+
+.kpn-station-picker-results {
+  max-height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kpn-station-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.kpn-station-picker-row:hover,
+.kpn-station-picker-row.is-selected {
+  background: #FFF5F5;
+}
+
+.kpn-station-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.kpn-station-row-info strong {
+  font-size: 12.5px;
+  color: var(--text-main);
+}
+
+.kpn-station-row-info small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-sub);
+}
+
+.kpn-interchange-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background: var(--gold-bg);
+  color: var(--maroon);
+  font-weight: 700;
+  border: 1px solid var(--gold);
+}
+
+/* ========================================================
+   13. ADVANCED CONTROLS & STAGE MODIFIED BANNER
+   ======================================================== */
+.kpn-planner-modified-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #FFFBEB;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+}
+
+.kpn-planner-modified-banner strong {
+  display: block;
+  font-size: 13px;
+  color: var(--maroon);
+}
+
+.kpn-planner-modified-banner small {
+  display: block;
+  font-size: 11px;
+  color: #92400E;
+}
+
+.kpn-btn-reapply-quick {
+  padding: 6px 14px;
+  background: var(--maroon);
+  color: #FFFFFF;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.kpn-advanced-collapsible-box {
+  background: var(--ivory-card);
+  border: 1px dashed var(--ivory-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.kpn-advanced-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.kpn-advanced-toggle-btn:hover {
+  background: rgba(0,0,0,0.02);
+}
+
+.kpn-advanced-fields-inner {
+  padding: 0 14px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--ivory-border-light);
+  padding-top: 12px;
+}
+
+.kpn-exclude-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  color: #991B1B;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+}
+
+.kpn-exclude-tag button {
+  background: transparent;
+  border: none;
+  color: #991B1B;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+
+.kpn-stop-schedule-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--maroon);
+  background: var(--gold-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  margin-top: 3px;
+  width: fit-content;
+}
+
+.kpn-stop-card.is-end-node {
+  border-left: 3px solid #E8590C;
+  background: #FFF8F3;
+}
+
+.kpn-stop-badge.end {
+  background: #E8590C !important;
+}
+
+.kpn-removable-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--ivory-card);
+  border: 1px solid var(--ivory-border);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.kpn-removable-chip button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 10px;
+}
+
+.kpn-removable-chip button:hover {
+  color: var(--vermilion);
+}
+
+.kpn-badge-live-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  background: var(--vermilion-soft);
+  color: var(--vermilion);
+  border-radius: var(--radius-full);
+}
+
+.kpn-sub-of-total {
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+.kpn-btn-clear-empty {
+  padding: 8px 16px;
+  background: var(--maroon);
+  color: #FFFFFF;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.kpn-segmented-control.wrap-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
 
 

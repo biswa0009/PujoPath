@@ -27,6 +27,7 @@ import { NightPlanner } from './components/NightPlanner';
 import { SavedPandalsView } from './components/SavedPandalsView';
 import { AdminModal } from './components/AdminModal';
 import { MapLibreMap } from './components/MapLibreMap';
+import { SheetSnapState } from './components/BottomSheet';
 
 const DEFAULT_FILTERS: FilterState = {
   searchQuery: '',
@@ -59,6 +60,18 @@ export function App() {
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(
     null
   );
+
+  // Bottom Sheet 3-state management ('collapsed' | 'half' | 'expanded')
+  const [exploreSheetState, setExploreSheetState] = useState<SheetSnapState>('half');
+  const [nightPlannerSheetState, setNightPlannerSheetState] = useState<SheetSnapState>('half');
+  const [isFullDetailModalOpen, setIsFullDetailModalOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 3. User Saved & Hopping Planner State
   const [favorites, setFavorites] = useState<string[]>(() => {
@@ -306,12 +319,26 @@ export function App() {
   }, [pandals]);
 
   // Handle selecting a pandal (preserves search and filter state)
-  const handleSelectPandal = useCallback((pandal: Pandal) => {
+  const handleSelectPandal = useCallback((pandal: Pandal, openFullModal = false) => {
     setSelectedPandal(pandal);
+    if (openFullModal) {
+      setIsFullDetailModalOpen(true);
+    }
     if (Number.isFinite(pandal.lat) && Number.isFinite(pandal.lng)) {
       setFlyToTarget({ lat: pandal.lat!, lng: pandal.lng!, zoom: 16.5 });
     }
+    // On mobile, transition bottom sheet to half state to reveal spotlight card without covering map
+    setExploreSheetState((prev) => (prev === 'collapsed' ? 'half' : prev));
   }, []);
+
+  // Collapse bottom sheet when clicking unobstructed map area
+  const handleMapBackgroundClick = useCallback(() => {
+    if (activeTab === 'explore') {
+      setExploreSheetState('collapsed');
+    } else if (activeTab === 'plan-night') {
+      setNightPlannerSheetState('collapsed');
+    }
+  }, [activeTab]);
 
   // Handle selecting a Metro station
   const handleSelectStation = useCallback((stationId: string) => {
@@ -662,6 +689,7 @@ export function App() {
             }}
             flyToTarget={flyToTarget}
             onSelectRouteStop={handleSelectRouteStop}
+            onMapBackgroundClick={handleMapBackgroundClick}
             onNearbyFound={(count) => {
               setNearbyBanner(
                 count > 0
@@ -686,13 +714,25 @@ export function App() {
                 onUpdateFilters={(upd) => setFilters((prev) => ({ ...prev, ...upd }))}
                 onResetFilters={() => setFilters(DEFAULT_FILTERS)}
                 onSelectPandal={(p) => handleSelectPandal(p)}
+                onDeselectPandal={() => setSelectedPandal(null)}
+                onOpenFullDetails={(p) => {
+                  setSelectedPandal(p);
+                  setIsFullDetailModalOpen(true);
+                }}
                 onTogglePlanner={(p, e) => handleTogglePlannerPandal(p, e)}
                 onToggleFavorite={(id, e) => handleToggleFavorite(id, e)}
                 onViewOnMap={() => {
-                  if (filteredPandals[0]) {
+                  if (selectedPandal) {
+                    handleSelectPandal(selectedPandal);
+                    setExploreSheetState('collapsed');
+                  } else if (filteredPandals[0]) {
                     handleSelectPandal(filteredPandals[0]);
+                    setExploreSheetState('collapsed');
                   }
                 }}
+                isMobileSheet={true}
+                sheetState={exploreSheetState}
+                onSheetStateChange={setExploreSheetState}
               />
             </div>
           )}
@@ -717,9 +757,12 @@ export function App() {
                     const avgLat = (Math.min(...lats) + Math.max(...lats)) / 2;
                     const avgLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
                     setFlyToTarget({ lat: avgLat, lng: avgLng, zoom: 14.5 });
+                    setNightPlannerSheetState('collapsed');
                   }
                 }}
                 isMobileSheet={true}
+                sheetState={nightPlannerSheetState}
+                onSheetStateChange={setNightPlannerSheetState}
               />
             </div>
           )}
@@ -750,21 +793,25 @@ export function App() {
         </div>
 
         {/* PANDAL DETAIL OVERLAY (Mobile Full-Screen Sheet & Desktop Right Panel) */}
-        {selectedPandal && (
+        {(isDesktop ? selectedPandal : (selectedPandal && isFullDetailModalOpen)) && (
           <div className="kpn-details-container-wrap">
             <PandalDetails
-              pandal={selectedPandal}
-              onClose={() => setSelectedPandal(null)}
+              pandal={selectedPandal!}
+              onClose={() => {
+                setIsFullDetailModalOpen(false);
+                if (isDesktop) setSelectedPandal(null);
+              }}
               onCenterMap={() => {
-                if (selectedPandal.lat && selectedPandal.lng) {
+                if (selectedPandal?.lat && selectedPandal?.lng) {
                   setFlyToTarget({ lat: selectedPandal.lat, lng: selectedPandal.lng, zoom: 17 });
+                  if (!isDesktop) setIsFullDetailModalOpen(false);
                 }
               }}
-              onAddToPlanner={() => handleTogglePlannerPandal(selectedPandal)}
-              isInPlanner={plannerStops.some((s) => s.id === selectedPandal.id)}
-              onStartRouteFromMetro={() => handleStartRouteFromMetro(selectedPandal)}
-              isFavorite={favorites.includes(selectedPandal.id)}
-              onToggleFavorite={() => handleToggleFavorite(selectedPandal.id)}
+              onAddToPlanner={() => selectedPandal && handleTogglePlannerPandal(selectedPandal)}
+              isInPlanner={Boolean(selectedPandal && plannerStops.some((s) => s.id === selectedPandal.id))}
+              onStartRouteFromMetro={() => selectedPandal && handleStartRouteFromMetro(selectedPandal)}
+              isFavorite={Boolean(selectedPandal && favorites.includes(selectedPandal.id))}
+              onToggleFavorite={() => selectedPandal && handleToggleFavorite(selectedPandal.id)}
             />
           </div>
         )}

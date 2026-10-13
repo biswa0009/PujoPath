@@ -87,6 +87,7 @@ export interface FilterState {
   selectedStyle: string; // 'all' or artistic style
   maxDistanceMeters: number; // 0 for any, or 500, 1000, 2000
   onlyVerified: boolean;
+  featuredOnly?: boolean;
 }
 
 // ========================================================
@@ -94,6 +95,7 @@ export interface FilterState {
 // ========================================================
 
 export type StartLocationType = 'current-location' | 'metro-station' | 'pandal';
+export type EndLocationType = 'same-as-start' | 'metro-station' | 'pandal' | 'none';
 
 export type TimeBudgetHours = 2 | 3 | 4 | 6;
 
@@ -103,20 +105,37 @@ export type PujoCategoryPreference =
   | 'Heritage Rajbari'
   | 'Contemporary Landmark';
 
-export type TravelPreference = 'walking-first' | 'metro-assisted' | 'balanced';
+export type TravelPreference = 'walking-first' | 'metro-assisted' | 'balanced' | 'minimal' | 'walking-focused';
 
 export type WalkingTolerance = 'low' | 'moderate' | 'high';
+
+export type DiscoveryPreference =
+  | 'max-pandals'
+  | 'famous-first'
+  | 'heritage-first'
+  | 'artistic-first'
+  | 'relaxed';
 
 export interface NightPlanConfig {
   startType: StartLocationType;
   startStationId?: string;
   startPandalId?: string;
   startCoords?: { lat: number; lng: number; label: string; bengaliLabel?: string };
-  timeAvailableHours: TimeBudgetHours;
+  endType?: EndLocationType;
+  endStationId?: string;
+  endPandalId?: string;
+  endCoords?: { lat: number; lng: number; label: string; bengaliLabel?: string };
+  timeAvailableHours: number; // 2, 3, 4, 6 or custom
   categories: PujoCategoryPreference[];
+  includeFeatured?: boolean;
   travelPreference: TravelPreference;
   walkingTolerance: WalkingTolerance;
+  discoveryPreference?: DiscoveryPreference;
+  maxStops?: number;
+  preferredDwellMinutes?: number;
   mustVisitPandalIds: string[];
+  excludedPandalIds?: string[];
+  startTime?: string; // e.g. "20:00"
 }
 
 export interface NightPlanLeg {
@@ -131,8 +150,8 @@ export interface NightPlanLeg {
 
 export interface NightPlanStop {
   id: string;
-  stopNumber: number; // 0 for starting node, 1, 2, 3... for pandals
-  type: 'start' | 'pandal';
+  stopNumber: number; // 0 for starting node, 1, 2, 3... for pandals, last for ending node if applicable
+  type: 'start' | 'pandal' | 'end';
   pandalId?: string;
   pandal?: Pandal;
   name: string;
@@ -144,6 +163,8 @@ export interface NightPlanStop {
   isMustVisit: boolean;
   matchReason: string;
   suggestedVisitMinutes: number; // planning estimate
+  arrivalTime?: string;
+  departureTime?: string;
   legToNext?: NightPlanLeg;
 }
 
@@ -167,7 +188,16 @@ export interface NightPlan {
     stationId?: string;
     pandalId?: string;
   };
-  stops: NightPlanStop[]; // stops including start node as stops[0]
+  endPoint?: {
+    label: string;
+    bengaliLabel?: string;
+    lat: number;
+    lng: number;
+    type: EndLocationType;
+    stationId?: string;
+    pandalId?: string;
+  };
+  stops: NightPlanStop[]; // stops including start node as stops[0] and optional end node
   totalStops: number; // number of pandal stops
   totalDurationMinutes: number; // total visit + travel minutes
   totalVisitMinutes: number;

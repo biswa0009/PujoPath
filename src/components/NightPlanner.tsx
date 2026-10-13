@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Pandal,
   RouteStop,
@@ -10,6 +10,8 @@ import {
   TravelPreference,
   WalkingTolerance,
   StartLocationType,
+  EndLocationType,
+  DiscoveryPreference,
 } from '../types';
 import { METRO_STATIONS, METRO_STATIONS_BY_ID } from '../data/metroStations';
 import { CATEGORY_STYLES, DEFAULT_CATEGORY_STYLE } from '../data/categoryMeta';
@@ -18,7 +20,6 @@ import {
   recalculateNightPlan,
 } from '../services/nightPlannerService';
 import {
-  loadSavedNightPlan,
   saveNightPlan,
   clearSavedNightPlan,
 } from '../services/storageService';
@@ -28,6 +29,7 @@ import {
   setStoredRoutingConfig,
   RoutingProviderConfig,
 } from '../services/routingService';
+import { BottomSheet, SheetSnapState } from './BottomSheet';
 import {
   NightPlanIcon,
   RouteIcon,
@@ -46,7 +48,6 @@ import {
   PlusIcon,
   TrashIcon,
   CheckCircleIcon,
-  HeartIcon,
   BookmarkIcon,
   InfoIcon,
 } from './Icons';
@@ -59,16 +60,30 @@ interface NightPlannerProps {
   onSelectStop?: (stop: NightPlanStop) => void;
   onViewOnMap?: () => void;
   isMobileSheet?: boolean;
+  sheetState?: SheetSnapState;
+  onSheetStateChange?: (state: SheetSnapState) => void;
 }
 
 const DEFAULT_CONFIG: NightPlanConfig = {
   startType: 'metro-station',
   startStationId: 'kalighat',
+  endType: 'same-as-start',
   timeAvailableHours: 3,
   categories: ['Traditional', 'Theme', 'Contemporary Landmark'],
+  includeFeatured: true,
   travelPreference: 'balanced',
   walkingTolerance: 'moderate',
+  discoveryPreference: 'famous-first',
   mustVisitPandalIds: [],
+  excludedPandalIds: [],
+  startTime: '19:30',
+};
+
+const METRO_LINE_COLORS: Record<string, string> = {
+  blue: '#0062B1',
+  green: '#00875A',
+  purple: '#7B2CBF',
+  orange: '#E8590C',
 };
 
 export function NightPlanner({
@@ -79,6 +94,8 @@ export function NightPlanner({
   onSelectStop,
   onViewOnMap,
   isMobileSheet = false,
+  sheetState = 'half',
+  onSheetStateChange,
 }: NightPlannerProps) {
   // Configuration State
   const [config, setConfig] = useState<NightPlanConfig>(() => {
@@ -86,8 +103,33 @@ export function NightPlanner({
     return DEFAULT_CONFIG;
   });
 
+  // Track if config has been modified compared to currentNightPlan
+  const isConfigModified = useMemo(() => {
+    if (!currentNightPlan?.config) return false;
+    const cur = currentNightPlan.config;
+    return (
+      cur.startType !== config.startType ||
+      cur.startStationId !== config.startStationId ||
+      cur.startPandalId !== config.startPandalId ||
+      cur.endType !== config.endType ||
+      cur.endStationId !== config.endStationId ||
+      cur.endPandalId !== config.endPandalId ||
+      cur.timeAvailableHours !== config.timeAvailableHours ||
+      cur.travelPreference !== config.travelPreference ||
+      cur.walkingTolerance !== config.walkingTolerance ||
+      cur.discoveryPreference !== config.discoveryPreference ||
+      cur.preferredDwellMinutes !== config.preferredDwellMinutes ||
+      cur.maxStops !== config.maxStops ||
+      cur.startTime !== config.startTime ||
+      JSON.stringify(cur.categories) !== JSON.stringify(config.categories) ||
+      JSON.stringify(cur.mustVisitPandalIds) !== JSON.stringify(config.mustVisitPandalIds) ||
+      JSON.stringify(cur.excludedPandalIds || []) !== JSON.stringify(config.excludedPandalIds || [])
+    );
+  }, [config, currentNightPlan]);
+
   // UI Flow State
   const [isConfigExpanded, setIsConfigExpanded] = useState<boolean>(() => !currentNightPlan);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -96,22 +138,31 @@ export function NightPlanner({
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'locating' | 'success' | 'denied'>('idle');
   const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
 
+  // Station Search Query for Starting Station
+  const [startStationSearch, setStartStationSearch] = useState('');
+  const [isStartStationDropdownOpen, setIsStartStationDropdownOpen] = useState(false);
+
+  // Station Search Query for Ending Station
+  const [endStationSearch, setEndStationSearch] = useState('');
+  const [isEndStationDropdownOpen, setIsEndStationDropdownOpen] = useState(false);
+
   // Search & Pickers
   const [isAddPickerOpen, setIsAddPickerOpen] = useState(false);
   const [addSearchQuery, setAddSearchQuery] = useState('');
   const [isMustVisitPickerOpen, setIsMustVisitPickerOpen] = useState(false);
   const [mustVisitSearch, setMustVisitSearch] = useState('');
-  const [stationSearch, setStationSearch] = useState('');
-  const [pandalStartSearch, setPandalStartSearch] = useState('');
-
-  // Mobile Sheet Expanded vs Peek (Minimized Map View)
-  const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(true);
+  const [isExcludePickerOpen, setIsExcludePickerOpen] = useState(false);
+  const [excludeSearch, setExcludeSearch] = useState('');
 
   // Routing Provider & API Key Modal State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [routingProvider, setRoutingProvider] = useState<RoutingProviderConfig['provider']>('osm');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeySavedStatus, setApiKeySavedStatus] = useState<string | null>(null);
+
+  // Active highlighted stop
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // Load configured routing engine on mount
   useEffect(() => {
@@ -120,16 +171,48 @@ export function NightPlanner({
     setApiKeyInput(cfg.apiKey || '');
   }, []);
 
-  // Active highlighted stop
-  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
-
   // Automatically save night plan on change
   useEffect(() => {
     if (currentNightPlan) {
       saveNightPlan(currentNightPlan);
     }
   }, [currentNightPlan]);
+
+  // Filtered Metro Stations for Start Station
+  const filteredStartStations = useMemo(() => {
+    const q = startStationSearch.toLowerCase().trim();
+    if (!q) return METRO_STATIONS;
+    return METRO_STATIONS.filter((s) => {
+      const nameMatch = s.name.toLowerCase().includes(q);
+      const bnMatch = s.bengaliName ? s.bengaliName.includes(q) : false;
+      const zoneMatch = s.zone ? s.zone.toLowerCase().includes(q) : false;
+      const lineMatch = s.line ? s.line.toLowerCase().includes(q) : false;
+      return nameMatch || bnMatch || zoneMatch || lineMatch;
+    });
+  }, [startStationSearch]);
+
+  // Filtered Metro Stations for End Station
+  const filteredEndStations = useMemo(() => {
+    const q = endStationSearch.toLowerCase().trim();
+    if (!q) return METRO_STATIONS;
+    return METRO_STATIONS.filter((s) => {
+      const nameMatch = s.name.toLowerCase().includes(q);
+      const bnMatch = s.bengaliName ? s.bengaliName.includes(q) : false;
+      const zoneMatch = s.zone ? s.zone.toLowerCase().includes(q) : false;
+      const lineMatch = s.line ? s.line.toLowerCase().includes(q) : false;
+      return nameMatch || bnMatch || zoneMatch || lineMatch;
+    });
+  }, [endStationSearch]);
+
+  // Active start station object
+  const activeStartStation = useMemo(() => {
+    return config.startStationId ? METRO_STATIONS_BY_ID[config.startStationId] : null;
+  }, [config.startStationId]);
+
+  // Active end station object
+  const activeEndStation = useMemo(() => {
+    return config.endStationId ? METRO_STATIONS_BY_ID[config.endStationId] : null;
+  }, [config.endStationId]);
 
   // Request GPS Location for start point
   const handleAcquireGps = useCallback((): Promise<{ lat: number; lng: number; label: string; bengaliLabel?: string }> => {
@@ -194,16 +277,13 @@ export function NightPlanner({
     setErrorMessage(null);
 
     try {
-      let activeConfig = config;
+      let activeConfig = { ...config };
 
       // Validate and automatically acquire GPS if startType is current-location
-      if (config.startType === 'current-location' && !config.startCoords) {
+      if (activeConfig.startType === 'current-location' && !activeConfig.startCoords) {
         try {
           const coords = await handleAcquireGps();
-          activeConfig = {
-            ...config,
-            startCoords: coords,
-          };
+          activeConfig.startCoords = coords;
         } catch (gpsErr: any) {
           setIsGenerating(false);
           setErrorMessage(gpsErr.message || 'Location permission required for Current Location.');
@@ -214,8 +294,8 @@ export function NightPlanner({
       const plan = await generateNightPlan(activeConfig, allPandals);
       onUpdateNightPlan(plan);
       setIsConfigExpanded(false); // Collapse form to reveal itinerary
-      if (isMobileSheet) {
-        setIsMobileExpanded(true); // Keep expanded initially so user sees the plan
+      if (isMobileSheet && onSheetStateChange) {
+        onSheetStateChange('half'); // Set to half on mobile to reveal both map and itinerary
       }
     } catch (err: any) {
       console.error('Error generating night plan:', err);
@@ -223,54 +303,6 @@ export function NightPlanner({
     } finally {
       setIsGenerating(false);
     }
-  };
-
-  // Re-plan / Tweak preferences
-  const handleToggleConfig = () => {
-    setIsConfigExpanded(!isConfigExpanded);
-  };
-
-  // Remove a stop
-  const handleRemoveStop = async (stopId: string) => {
-    if (!currentNightPlan) return;
-    const updated = currentNightPlan.stops.filter((s) => s.id !== stopId);
-    if (updated.length <= 1) {
-      // Only start node remains
-      onUpdateNightPlan({
-        ...currentNightPlan,
-        stops: updated,
-        totalStops: 0,
-        totalDurationMinutes: 0,
-        totalVisitMinutes: 0,
-        totalTravelMinutes: 0,
-        totalWalkingDistanceMeters: 0,
-        routeResult: null,
-        status: 'modified',
-      });
-      return;
-    }
-
-    const recalculated = await recalculateNightPlan(currentNightPlan, updated);
-    onUpdateNightPlan(recalculated);
-  };
-
-  // Move a stop up or down
-  const handleMoveStop = async (index: number, direction: 'up' | 'down') => {
-    if (!currentNightPlan) return;
-    const pandalStops = currentNightPlan.stops.filter((s) => s.type === 'pandal');
-    const pandalIdx = index - 1; // because stops[0] is start node
-
-    if (direction === 'up' && pandalIdx <= 0) return;
-    if (direction === 'down' && pandalIdx >= pandalStops.length - 1) return;
-
-    const targetIdx = direction === 'up' ? pandalIdx - 1 : pandalIdx + 1;
-    const newPandalStops = [...pandalStops];
-    const [moved] = newPandalStops.splice(pandalIdx, 1);
-    newPandalStops.splice(targetIdx, 0, moved);
-
-    const updatedStops = [currentNightPlan.stops[0], ...newPandalStops];
-    const recalculated = await recalculateNightPlan(currentNightPlan, updatedStops);
-    onUpdateNightPlan(recalculated);
   };
 
   // Toggle Must-Visit flag on an existing stop
@@ -296,6 +328,58 @@ export function NightPlanner({
     onUpdateNightPlan(recalculated);
   };
 
+  // Remove a stop
+  const handleRemoveStop = async (stopId: string) => {
+    if (!currentNightPlan) return;
+    const updated = currentNightPlan.stops.filter((s) => s.id !== stopId);
+    if (updated.length <= 1) {
+      onUpdateNightPlan({
+        ...currentNightPlan,
+        stops: updated,
+        totalStops: 0,
+        totalDurationMinutes: 0,
+        totalVisitMinutes: 0,
+        totalTravelMinutes: 0,
+        totalWalkingDistanceMeters: 0,
+        routeResult: null,
+        status: 'modified',
+      });
+      return;
+    }
+
+    const recalculated = await recalculateNightPlan(currentNightPlan, updated);
+    onUpdateNightPlan(recalculated);
+  };
+
+  // Move a stop up or down
+  const handleMoveStop = async (index: number, direction: 'up' | 'down') => {
+    if (!currentNightPlan) return;
+    const pandalStops = currentNightPlan.stops.filter((s) => s.type === 'pandal');
+    const pandalIdx = index - 1; // stops[0] is start node
+
+    if (direction === 'up' && pandalIdx <= 0) return;
+    if (direction === 'down' && pandalIdx >= pandalStops.length - 1) return;
+
+    const targetIdx = direction === 'up' ? pandalIdx - 1 : pandalIdx + 1;
+    const newPandalStops = [...pandalStops];
+    const [moved] = newPandalStops.splice(pandalIdx, 1);
+    newPandalStops.splice(targetIdx, 0, moved);
+
+    const startNode = currentNightPlan.stops[0];
+    const endNode = currentNightPlan.stops[currentNightPlan.stops.length - 1]?.type === 'end'
+      ? currentNightPlan.stops[currentNightPlan.stops.length - 1]
+      : null;
+
+    const updatedStops = [
+      startNode,
+      ...newPandalStops,
+      ...(endNode ? [endNode] : []),
+    ];
+
+    const recalculated = await recalculateNightPlan(currentNightPlan, updatedStops);
+    onUpdateNightPlan(recalculated);
+  };
+
   // Add a pandal to the existing itinerary
   const handleAddPandalToRoute = async (pandal: Pandal) => {
     if (!currentNightPlan) return;
@@ -318,10 +402,22 @@ export function NightPlanner({
       lng: pandal.lng!,
       isMustVisit: config.mustVisitPandalIds.includes(pandal.id),
       matchReason: `Manually added to your night route · ${pandal.category}`,
-      suggestedVisitMinutes: 30,
+      suggestedVisitMinutes: config.preferredDwellMinutes || 30,
     };
 
-    const updatedStops = [...currentNightPlan.stops, newStop];
+    // If there's an ending node, insert before end
+    const lastIsEnd = currentNightPlan.stops[currentNightPlan.stops.length - 1]?.type === 'end';
+    let updatedStops: NightPlanStop[];
+    if (lastIsEnd) {
+      updatedStops = [
+        ...currentNightPlan.stops.slice(0, -1),
+        newStop,
+        currentNightPlan.stops[currentNightPlan.stops.length - 1],
+      ];
+    } else {
+      updatedStops = [...currentNightPlan.stops, newStop];
+    }
+
     setIsAddPickerOpen(false);
     setAddSearchQuery('');
 
@@ -331,7 +427,7 @@ export function NightPlanner({
     setTimeout(() => setSaveToast(null), 3500);
   };
 
-  // Save / Copy confirmation toast
+  // Save itinerary locally
   const handleSaveRouteLocally = () => {
     if (currentNightPlan) {
       saveNightPlan(currentNightPlan);
@@ -382,6 +478,22 @@ export function NightPlanner({
       .slice(0, 30);
   }, [allPandals, mustVisitSearch]);
 
+  // Filter candidates for Excluded Pandals picker
+  const filteredExcludeCandidates = useMemo(() => {
+    const q = excludeSearch.toLowerCase().trim();
+    return allPandals
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+      .filter((p) => {
+        if (!q) return true;
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (p.bengaliName && p.bengaliName.includes(q)) ||
+          p.neighbourhood.toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 30);
+  }, [allPandals, excludeSearch]);
+
   // Format minutes into hours + mins
   const formatMinutes = (totalMin: number) => {
     const hrs = Math.floor(totalMin / 60);
@@ -404,142 +516,134 @@ export function NightPlanner({
     return getGoogleMapsDirectionsUrl(routeStops);
   }, [currentNightPlan]);
 
-  return (
-    <div
-      className={`kpn-night-planner-container ${
-        isMobileSheet
-          ? `kpn-planner-mobile-sheet ${isMobileExpanded ? 'is-expanded' : 'is-peek'}`
-          : 'kpn-planner-desktop'
-      }`}
-    >
-      {/* 0. MOBILE DRAG HANDLE */}
-      {isMobileSheet && (
-        <div
-          className="kpn-sheet-drag-handle"
-          onClick={() => setIsMobileExpanded(!isMobileExpanded)}
-          role="button"
-          tabIndex={0}
-          aria-label={isMobileExpanded ? 'Minimize to view interactive map' : 'Expand itinerary planner'}
-          id="planner-mobile-drag-handle"
+  // RENDER: Collapsed Preview for Mobile Bottom Sheet
+  const renderCollapsedPreview = () => (
+    <div className="kpn-planner-collapsed-bar" onClick={() => onSheetStateChange?.('half')}>
+      <div className="kpn-peek-title-group">
+        <div className="kpn-night-badge-glow" style={{ width: 32, height: 32, fontSize: 15 }}>
+          🌙
+        </div>
+        <div className="kpn-peek-info-text">
+          <strong className="kpn-peek-main-title">Pujo Night Route</strong>
+          <span className="kpn-peek-stats">
+            {currentNightPlan
+              ? `${currentNightPlan.totalStops} Stops · ${formatMinutes(currentNightPlan.totalDurationMinutes)} · ~${(currentNightPlan.totalWalkingDistanceMeters / 1000).toFixed(1)} km`
+              : 'Tap to configure hopping route'}
+          </span>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="kpn-peek-action-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSheetStateChange?.(currentNightPlan ? 'half' : 'expanded');
+        }}
+        id="planner-peek-action-btn"
+      >
+        <span>{currentNightPlan ? 'View Route' : 'Plan'}</span>
+      </button>
+    </div>
+  );
+
+  // RENDER: Top Header Row
+  const renderHeader = () => (
+    <div className="kpn-night-header">
+      <div className="kpn-night-title-row">
+        <div className="kpn-night-badge-glow">
+          <NightPlanIcon size={20} className="kpn-night-icon" />
+        </div>
+        <div>
+          <h2 className="kpn-night-title">Pujo Night Planner</h2>
+          <p className="kpn-night-subtitle">Personalized route with real Metro corridors.</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {onViewOnMap && (
+          <button
+            type="button"
+            className="kpn-pill-toggle-btn"
+            onClick={() => {
+              if (isMobileSheet && onSheetStateChange) {
+                onSheetStateChange('collapsed');
+              }
+              onViewOnMap();
+            }}
+            id="planner-view-on-map-top-btn"
+            title="Show on map"
+          >
+            <span>🗺️ Map</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="kpn-pill-toggle-btn"
+          onClick={() => setIsSettingsOpen(true)}
+          id="planner-open-routing-engine-btn"
+          title="Routing Engine & API Key Settings"
         >
-          <span className="kpn-drag-bar" />
+          <span>⚙️ Engine</span>
+        </button>
+
+        {currentNightPlan && (
+          <button
+            type="button"
+            className={`kpn-pill-toggle-btn ${isConfigModified ? 'is-modified-highlight' : ''}`}
+            onClick={() => setIsConfigExpanded(!isConfigExpanded)}
+            aria-expanded={isConfigExpanded}
+            id="toggle-plan-config-btn"
+          >
+            <span>{isConfigExpanded ? 'Hide' : 'Tweak'}</span>
+            {isConfigExpanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // RENDER: Full Planner Content
+  const renderMainContent = () => (
+    <div className="kpn-planner-content-scroll">
+      {saveToast && (
+        <div className="kpn-planner-toast" role="status">
+          <span>✓ {saveToast}</span>
         </div>
       )}
 
-      {/* MOBILE PEEK SUMMARY BAR (Minimized Map View) */}
-      {isMobileSheet && !isMobileExpanded && (
-        <div
-          className="kpn-planner-peek-summary"
-          onClick={() => setIsMobileExpanded(true)}
-          role="button"
-          tabIndex={0}
-          id="planner-mobile-peek-bar"
-        >
-          <div className="kpn-peek-title-group">
-            <div className="kpn-night-badge-glow" style={{ width: 34, height: 34, fontSize: 16 }}>
-              🌙
-            </div>
-            <div>
-              <strong>Pujo Night Route</strong>
-              <div className="kpn-peek-stats">
-                {currentNightPlan
-                  ? `${currentNightPlan.totalStops} Pandals · ${formatMinutes(currentNightPlan.totalDurationMinutes)} · ~${(currentNightPlan.totalWalkingDistanceMeters / 1000).toFixed(1)} km`
-                  : 'Ready to configure route'}
-              </div>
-            </div>
+      {/* MODIFIED SETTINGS PENDING BANNER */}
+      {isConfigModified && currentNightPlan && !isConfigExpanded && (
+        <div className="kpn-planner-modified-banner">
+          <div>
+            <strong>Settings Changed</strong>
+            <small>Tap 'Regenerate Route' to apply your new preferences.</small>
           </div>
           <button
             type="button"
-            className="kpn-planner-map-toggle-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMobileExpanded(true);
-            }}
-            id="planner-open-plan-btn"
+            className="kpn-btn-reapply-quick"
+            onClick={handleGenerateRoute}
+            disabled={isGenerating}
           >
-            <span>📝 Open Plan</span>
+            {isGenerating ? 'Updating...' : 'Regenerate'}
           </button>
         </div>
       )}
 
-      {/* FULL PLANNER CONTENT (Shown when expanded or on desktop) */}
-      {(!isMobileSheet || isMobileExpanded) && (
-        <>
-          {/* 1. TOP HEADER */}
-          <div className="kpn-night-header">
-            <div className="kpn-night-title-row">
-              <div className="kpn-night-badge-glow">
-                <NightPlanIcon size={22} className="kpn-night-icon" />
-              </div>
-              <div>
-                <h2 className="kpn-night-title">Pujo Night Planner</h2>
-                <p className="kpn-night-subtitle">Optimized pandal route with walking & Metro corridors.</p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {isMobileSheet && (
-                <button
-                  type="button"
-                  className="kpn-pill-toggle-btn"
-                  onClick={() => {
-                    setIsMobileExpanded(false);
-                    onViewOnMap?.();
-                  }}
-                  id="planner-view-on-map-btn"
-                  title="Minimize sheet to view map"
-                >
-                  <span>🗺️ Map</span>
-                </button>
-              )}
-
-              <button
-                type="button"
-                className="kpn-pill-toggle-btn"
-                onClick={() => setIsSettingsOpen(true)}
-                id="planner-open-routing-engine-btn"
-                title="Routing Engine & API Key Settings"
-              >
-                <span>⚙️ Engine</span>
-              </button>
-
-              {currentNightPlan && (
-                <button
-                  type="button"
-                  className="kpn-pill-toggle-btn"
-                  onClick={handleToggleConfig}
-                  aria-expanded={isConfigExpanded}
-                  id="toggle-plan-config-btn"
-                >
-                  <span>{isConfigExpanded ? 'Hide' : 'Tweak'}</span>
-                  {isConfigExpanded ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {saveToast && (
-            <div className="kpn-planner-toast" role="status">
-              <span>✓ {saveToast}</span>
-            </div>
-          )}
-
-      {/* 2. CONFIGURATION SETUP FLOW (Progressive Disclosure) */}
+      {/* 2. PROGRESSIVE CONFIGURATION SETUP FLOW */}
       {isConfigExpanded && (
         <section className="kpn-planner-config-card" aria-label="Planner Setup Flow">
           {/* STEP 1: Starting Point */}
           <div className="kpn-config-group">
             <label className="kpn-config-label">
               <CompassIcon size={15} />
-              <span>1. Choose Starting Point</span>
+              <span>1. Starting Point</span>
             </label>
 
             <div className="kpn-segmented-control" role="tablist">
               <button
                 type="button"
-                className={`kpn-segment-btn ${
-                  config.startType === 'metro-station' ? 'is-active' : ''
-                }`}
+                className={`kpn-segment-btn ${config.startType === 'metro-station' ? 'is-active' : ''}`}
                 onClick={() => setConfig((p) => ({ ...p, startType: 'metro-station' }))}
                 id="start-type-metro-btn"
               >
@@ -549,9 +653,7 @@ export function NightPlanner({
 
               <button
                 type="button"
-                className={`kpn-segment-btn ${
-                  config.startType === 'current-location' ? 'is-active' : ''
-                }`}
+                className={`kpn-segment-btn ${config.startType === 'current-location' ? 'is-active' : ''}`}
                 onClick={() => {
                   setConfig((p) => ({ ...p, startType: 'current-location' }));
                   if (!config.startCoords) handleAcquireGps();
@@ -568,62 +670,97 @@ export function NightPlanner({
                 onClick={() => setConfig((p) => ({ ...p, startType: 'pandal' }))}
                 id="start-type-pandal-btn"
               >
-                <span>🪔</span>
-                <span>Select Pandal</span>
+                <span>🪔 Pandal</span>
               </button>
             </div>
 
-            {/* Sub-selectors for starting point */}
+            {/* Sub-selector: Searchable Metro Station for Start */}
             {config.startType === 'metro-station' && (
               <div className="kpn-start-picker-box">
-                <select
-                  value={config.startStationId || 'kalighat'}
-                  onChange={(e) => setConfig((p) => ({ ...p, startStationId: e.target.value }))}
-                  className="kpn-native-select"
-                  aria-label="Select Starting Metro Station"
-                  id="select-start-metro-dropdown"
-                >
-                  <optgroup label="Blue Line (North-South)">
-                    {METRO_STATIONS.filter((s) => s.lineCode === 'blue').map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.zone}) {s.interchange ? '⇄ Interchange' : ''}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Green Line (Howrah - Salt Lake)">
-                    {METRO_STATIONS.filter((s) => s.lineCode === 'green').map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.zone})
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Purple Line (Joka - Majerhat)">
-                    {METRO_STATIONS.filter((s) => s.lineCode === 'purple').map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} (South-West)
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Orange Line (Kavi Subhash - Hemanta Mukherjee)">
-                    {METRO_STATIONS.filter((s) => s.lineCode === 'orange').map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} (East)
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-                <small className="kpn-hint-text">
-                  Kolkata Metro stations provide congestion-free, walkable access gates to puja clusters.
-                </small>
+                {activeStartStation && !isStartStationDropdownOpen ? (
+                  <div className="kpn-selected-station-card">
+                    <div className="kpn-station-card-left">
+                      <span
+                        className="kpn-line-badge"
+                        style={{ backgroundColor: METRO_LINE_COLORS[activeStartStation.lineCode] || '#0062B1' }}
+                      >
+                        {activeStartStation.lineCode.toUpperCase()}
+                      </span>
+                      <div>
+                        <strong>{activeStartStation.name}</strong>
+                        {activeStartStation.bengaliName && (
+                          <span className="kpn-bn-label">({activeStartStation.bengaliName})</span>
+                        )}
+                        <small className="kpn-station-sub">{activeStartStation.line} · {activeStartStation.zone} Kolkata</small>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="kpn-btn-change-station"
+                      onClick={() => setIsStartStationDropdownOpen(true)}
+                      id="change-start-station-btn"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <div className="kpn-searchable-station-picker">
+                    <div className="kpn-station-search-input-wrap">
+                      <SearchIcon size={14} />
+                      <input
+                        type="text"
+                        placeholder="Search Metro (e.g., Howrah, Kalighat, Shyambazar)..."
+                        value={startStationSearch}
+                        onChange={(e) => setStartStationSearch(e.target.value)}
+                        autoFocus={isStartStationDropdownOpen}
+                        id="start-station-search-input"
+                      />
+                      {startStationSearch && (
+                        <button type="button" onClick={() => setStartStationSearch('')} aria-label="Clear search">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    <div className="kpn-station-picker-results">
+                      {filteredStartStations.map((st) => (
+                        <div
+                          key={st.id}
+                          className={`kpn-station-picker-row ${config.startStationId === st.id ? 'is-selected' : ''}`}
+                          onClick={() => {
+                            setConfig((prev) => ({ ...prev, startStationId: st.id }));
+                            setIsStartStationDropdownOpen(false);
+                            setStartStationSearch('');
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <span
+                            className="kpn-line-badge-sm"
+                            style={{ backgroundColor: METRO_LINE_COLORS[st.lineCode] || '#0062B1' }}
+                          >
+                            {st.lineCode.toUpperCase()}
+                          </span>
+                          <div className="kpn-station-row-info">
+                            <strong>{st.name}</strong>
+                            {st.bengaliName && <span className="kpn-bn-label">{st.bengaliName}</span>}
+                            <small>{st.line} · {st.zone}</small>
+                          </div>
+                          {st.interchange && <span className="kpn-interchange-badge">⇄ Inter</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
+            {/* Sub-selector: Current Location GPS */}
             {config.startType === 'current-location' && (
               <div className="kpn-gps-box">
                 {isLocating && (
                   <div className="kpn-gps-status-loading">
                     <span className="kpn-spinner-small" />
-                    <span>Acquiring your real-time coordinates...</span>
+                    <span>Acquiring real-time GPS coordinates...</span>
                   </div>
                 )}
 
@@ -633,7 +770,7 @@ export function NightPlanner({
                     <div>
                       <strong>GPS Acquired:</strong> {config.startCoords.label}
                       <small className="kpn-block-sub">
-                        Coordinates: {config.startCoords.lat.toFixed(4)}, {config.startCoords.lng.toFixed(4)}
+                        {config.startCoords.lat.toFixed(4)}, {config.startCoords.lng.toFixed(4)}
                       </small>
                     </div>
                   </div>
@@ -659,6 +796,7 @@ export function NightPlanner({
               </div>
             )}
 
+            {/* Sub-selector: Pandal Start */}
             {config.startType === 'pandal' && (
               <div className="kpn-start-picker-box">
                 <select
@@ -676,18 +814,162 @@ export function NightPlanner({
                       </option>
                     ))}
                 </select>
-                <small className="kpn-hint-text">
-                  Route starts right from this pandal's entrance gate.
-                </small>
               </div>
             )}
           </div>
 
-          {/* STEP 2: Time Available */}
+          {/* STEP 2: Ending Point */}
+          <div className="kpn-config-group">
+            <label className="kpn-config-label">
+              <RouteIcon size={15} />
+              <span>2. Ending Point / Destination</span>
+            </label>
+
+            <div className="kpn-segmented-control wrap-2x2" role="tablist">
+              <button
+                type="button"
+                className={`kpn-segment-btn ${(!config.endType || config.endType === 'same-as-start') ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, endType: 'same-as-start' }))}
+                id="end-type-same-btn"
+              >
+                <span>🔄 Return to Start</span>
+              </button>
+
+              <button
+                type="button"
+                className={`kpn-segment-btn ${config.endType === 'metro-station' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, endType: 'metro-station' }))}
+                id="end-type-metro-btn"
+              >
+                <MetroIcon size={14} />
+                <span>Metro Station</span>
+              </button>
+
+              <button
+                type="button"
+                className={`kpn-segment-btn ${config.endType === 'pandal' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, endType: 'pandal' }))}
+                id="end-type-pandal-btn"
+              >
+                <span>🪔 End at Pandal</span>
+              </button>
+
+              <button
+                type="button"
+                className={`kpn-segment-btn ${config.endType === 'none' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, endType: 'none' }))}
+                id="end-type-none-btn"
+              >
+                <span>🏁 No Fixed End</span>
+              </button>
+            </div>
+
+            {/* Ending Metro Station Picker */}
+            {config.endType === 'metro-station' && (
+              <div className="kpn-start-picker-box">
+                {activeEndStation && !isEndStationDropdownOpen ? (
+                  <div className="kpn-selected-station-card">
+                    <div className="kpn-station-card-left">
+                      <span
+                        className="kpn-line-badge"
+                        style={{ backgroundColor: METRO_LINE_COLORS[activeEndStation.lineCode] || '#0062B1' }}
+                      >
+                        {activeEndStation.lineCode.toUpperCase()}
+                      </span>
+                      <div>
+                        <strong>{activeEndStation.name}</strong>
+                        {activeEndStation.bengaliName && (
+                          <span className="kpn-bn-label">({activeEndStation.bengaliName})</span>
+                        )}
+                        <small className="kpn-station-sub">{activeEndStation.line} · {activeEndStation.zone}</small>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="kpn-btn-change-station"
+                      onClick={() => setIsEndStationDropdownOpen(true)}
+                      id="change-end-station-btn"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <div className="kpn-searchable-station-picker">
+                    <div className="kpn-station-search-input-wrap">
+                      <SearchIcon size={14} />
+                      <input
+                        type="text"
+                        placeholder="Search finishing Metro station..."
+                        value={endStationSearch}
+                        onChange={(e) => setEndStationSearch(e.target.value)}
+                        autoFocus={isEndStationDropdownOpen}
+                        id="end-station-search-input"
+                      />
+                      {endStationSearch && (
+                        <button type="button" onClick={() => setEndStationSearch('')}>
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    <div className="kpn-station-picker-results">
+                      {filteredEndStations.map((st) => (
+                        <div
+                          key={st.id}
+                          className={`kpn-station-picker-row ${config.endStationId === st.id ? 'is-selected' : ''}`}
+                          onClick={() => {
+                            setConfig((prev) => ({ ...prev, endStationId: st.id }));
+                            setIsEndStationDropdownOpen(false);
+                            setEndStationSearch('');
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <span
+                            className="kpn-line-badge-sm"
+                            style={{ backgroundColor: METRO_LINE_COLORS[st.lineCode] || '#0062B1' }}
+                          >
+                            {st.lineCode.toUpperCase()}
+                          </span>
+                          <div className="kpn-station-row-info">
+                            <strong>{st.name}</strong>
+                            {st.bengaliName && <span className="kpn-bn-label">{st.bengaliName}</span>}
+                            <small>{st.line} · {st.zone}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ending Pandal Picker */}
+            {config.endType === 'pandal' && (
+              <div className="kpn-start-picker-box">
+                <select
+                  value={config.endPandalId || allPandals[1]?.id}
+                  onChange={(e) => setConfig((p) => ({ ...p, endPandalId: e.target.value }))}
+                  className="kpn-native-select"
+                  aria-label="Select Ending Pandal"
+                  id="select-end-pandal-dropdown"
+                >
+                  {allPandals
+                    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.neighbourhood} · {p.category})
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* STEP 3: Available Time Budget */}
           <div className="kpn-config-group">
             <label className="kpn-config-label">
               <ClockIcon size={15} />
-              <span>2. Time Available for Pandal Hopping</span>
+              <span>3. Available Time ({config.timeAvailableHours} Hours)</span>
             </label>
 
             <div className="kpn-chips-row">
@@ -695,9 +977,7 @@ export function NightPlanner({
                 <button
                   key={hours}
                   type="button"
-                  className={`kpn-chip-btn ${
-                    config.timeAvailableHours === hours ? 'is-selected' : ''
-                  }`}
+                  className={`kpn-chip-btn ${config.timeAvailableHours === hours ? 'is-selected' : ''}`}
                   onClick={() => setConfig((p) => ({ ...p, timeAvailableHours: hours }))}
                   id={`time-chip-${hours}h`}
                 >
@@ -705,17 +985,33 @@ export function NightPlanner({
                   <span className="kpn-chip-unit">hours</span>
                 </button>
               ))}
+              <button
+                type="button"
+                className={`kpn-chip-btn ${![2, 3, 4, 6].includes(config.timeAvailableHours) ? 'is-selected' : ''}`}
+                onClick={() => {
+                  const input = prompt('Enter duration in hours (e.g. 5, 8):', String(config.timeAvailableHours));
+                  if (input) {
+                    const parsed = parseFloat(input);
+                    if (!isNaN(parsed) && parsed > 0 && parsed <= 12) {
+                      setConfig((p) => ({ ...p, timeAvailableHours: parsed }));
+                    }
+                  }
+                }}
+                id="time-chip-custom"
+              >
+                <span className="kpn-chip-val">Custom</span>
+              </button>
             </div>
             <small className="kpn-hint-text">
-              Includes estimated viewing time at each pandal + transit corridors.
+              Total duration accounts for viewing each pandal + realistic pedestrian & Metro travel.
             </small>
           </div>
 
-          {/* STEP 3: Puja Preferences */}
+          {/* STEP 4: Puja Category Preferences */}
           <div className="kpn-config-group">
             <label className="kpn-config-label">
               <span>🪔</span>
-              <span>3. Puja Preferences (Multiple Allowed)</span>
+              <span>4. Puja Category Preferences</span>
             </label>
 
             <div className="kpn-pill-grid">
@@ -725,25 +1021,25 @@ export function NightPlanner({
                     id: 'Traditional' as PujoCategoryPreference,
                     label: 'Traditional Sabeki',
                     icon: '🪔',
-                    desc: 'Ekchala & Daker Saaj',
+                    desc: 'Ekchala & Daker Saaj idols',
                   },
                   {
                     id: 'Theme' as PujoCategoryPreference,
                     label: 'Artistic & Theme',
                     icon: '🎨',
-                    desc: 'Handicraft & concepts',
+                    desc: 'Conceptual craft installations',
                   },
                   {
                     id: 'Heritage Rajbari' as PujoCategoryPreference,
                     label: 'Heritage Bonedi Bari',
                     icon: '🏛',
-                    desc: 'Aristocratic courtyards',
+                    desc: 'Aristocratic household pujas',
                   },
                   {
                     id: 'Contemporary Landmark' as PujoCategoryPreference,
-                    label: 'Famous & Landmarks',
+                    label: 'Famous Attractions',
                     icon: '⭐',
-                    desc: 'Grand mega carnivals',
+                    desc: 'Mega-budget Kolkata landmarks',
                   },
                 ]
               ).map((cat) => {
@@ -759,7 +1055,6 @@ export function NightPlanner({
                         const next = exists
                           ? prev.categories.filter((c) => c !== cat.id)
                           : [...prev.categories, cat.id];
-                        // Keep at least one category selected
                         return { ...prev, categories: next.length > 0 ? next : [cat.id] };
                       });
                     }}
@@ -777,152 +1072,339 @@ export function NightPlanner({
             </div>
           </div>
 
-          {/* STEP 4: Travel & Walking Preferences */}
-          <div className="kpn-config-row-two-col">
-            {/* Travel Preference */}
-            <div className="kpn-config-group">
-              <label className="kpn-config-label">
-                <WalkIcon size={15} />
-                <span>Travel Mode</span>
-              </label>
-              <div className="kpn-mini-select-wrap">
-                <select
-                  value={config.travelPreference}
-                  onChange={(e) =>
-                    setConfig((p) => ({ ...p, travelPreference: e.target.value as TravelPreference }))
-                  }
-                  className="kpn-native-select"
-                  id="select-travel-mode"
-                >
-                  <option value="walking-first">Walking-first (Local alleys)</option>
-                  <option value="balanced">Balanced walking & Metro</option>
-                  <option value="metro-assisted">Metro-assisted (Long stretches)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Walking Tolerance */}
-            <div className="kpn-config-group">
-              <label className="kpn-config-label">
-                <RouteIcon size={15} />
-                <span>Walking Tolerance</span>
-              </label>
-              <div className="kpn-mini-select-wrap">
-                <select
-                  value={config.walkingTolerance}
-                  onChange={(e) =>
-                    setConfig((p) => ({
-                      ...p,
-                      walkingTolerance: e.target.value as WalkingTolerance,
-                    }))
-                  }
-                  className="kpn-native-select"
-                  id="select-walking-tolerance"
-                >
-                  <option value="low">Low (&lt; 600 m legs)</option>
-                  <option value="moderate">Moderate (&lt; 1.2 km legs)</option>
-                  <option value="high">High (&lt; 2.5 km legs)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* STEP 5: Must-Visit Pandals (Optional) */}
+          {/* STEP 5: Walking Preference */}
           <div className="kpn-config-group">
-            <div className="kpn-label-with-action">
-              <label className="kpn-config-label">
-                <SparklesIcon size={15} />
-                <span>Must-Visit Pandals ({config.mustVisitPandalIds.length})</span>
-              </label>
+            <label className="kpn-config-label">
+              <WalkIcon size={15} />
+              <span>5. Walking Preference</span>
+            </label>
+
+            <div className="kpn-segmented-control" role="tablist">
               <button
                 type="button"
-                className="kpn-text-link-btn"
-                onClick={() => setIsMustVisitPickerOpen(!isMustVisitPickerOpen)}
-                id="toggle-must-visit-picker-btn"
+                className={`kpn-segment-btn ${config.travelPreference === 'minimal' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, travelPreference: 'minimal', walkingTolerance: 'low' }))}
+                id="walk-pref-minimal"
               >
-                {isMustVisitPickerOpen ? 'Done' : '+ Pick Must-Visits'}
+                <span>🚶 Minimal Walk</span>
+              </button>
+
+              <button
+                type="button"
+                className={`kpn-segment-btn ${config.travelPreference === 'balanced' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, travelPreference: 'balanced', walkingTolerance: 'moderate' }))}
+                id="walk-pref-balanced"
+              >
+                <span>⚖️ Balanced</span>
+              </button>
+
+              <button
+                type="button"
+                className={`kpn-segment-btn ${config.travelPreference === 'walking-focused' ? 'is-active' : ''}`}
+                onClick={() => setConfig((p) => ({ ...p, travelPreference: 'walking-focused', walkingTolerance: 'high' }))}
+                id="walk-pref-focused"
+              >
+                <span>👟 Walking-Focused</span>
               </button>
             </div>
+          </div>
 
-            {/* Chips of currently chosen must-visits */}
-            {config.mustVisitPandalIds.length > 0 && (
-              <div className="kpn-must-visit-tags">
-                {config.mustVisitPandalIds.map((id) => {
-                  const p = allPandals.find((item) => item.id === id);
-                  if (!p) return null;
-                  return (
-                    <span key={id} className="kpn-must-visit-tag">
-                      <span>★ {p.name}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setConfig((prev) => ({
-                            ...prev,
-                            mustVisitPandalIds: prev.mustVisitPandalIds.filter((mId) => mId !== id),
-                          }))
-                        }
-                        title="Remove must-visit"
-                        aria-label={`Remove ${p.name}`}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
+          {/* STEP 6: Discovery Preference */}
+          <div className="kpn-config-group">
+            <label className="kpn-config-label">
+              <SparklesIcon size={15} />
+              <span>6. Discovery Focus</span>
+            </label>
 
-            {/* Expandable Must-Visit Picker */}
-            {isMustVisitPickerOpen && (
-              <div className="kpn-must-visit-drawer">
-                <div className="kpn-drawer-search">
-                  <SearchIcon size={14} />
+            <div className="kpn-chips-row flex-wrap">
+              {[
+                { id: 'max-pandals' as DiscoveryPreference, label: '⚡ Visit as Many as Possible' },
+                { id: 'famous-first' as DiscoveryPreference, label: '⭐ Prioritize Famous Pujas' },
+                { id: 'heritage-first' as DiscoveryPreference, label: '🏛 Heritage & Traditional' },
+                { id: 'artistic-first' as DiscoveryPreference, label: '🎨 Artistic & Unique Themes' },
+                { id: 'relaxed' as DiscoveryPreference, label: '☕ Relaxed (More Time at Stops)' },
+              ].map((disc) => (
+                <button
+                  key={disc.id}
+                  type="button"
+                  className={`kpn-chip-btn ${config.discoveryPreference === disc.id ? 'is-selected' : ''}`}
+                  onClick={() => setConfig((p) => ({ ...p, discoveryPreference: disc.id }))}
+                  id={`discovery-${disc.id}`}
+                >
+                  <span className="kpn-chip-val" style={{ fontSize: 12 }}>{disc.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* STEP 7: Optional Advanced Controls (Collapsible) */}
+          <div className="kpn-advanced-collapsible-box">
+            <button
+              type="button"
+              className="kpn-advanced-toggle-btn"
+              onClick={() => setIsAdvancedExpanded(!isAdvancedExpanded)}
+              aria-expanded={isAdvancedExpanded}
+              id="toggle-advanced-planner-options"
+            >
+              <span>⚙️ Advanced Options (Must-Visits, Exclusions, Max Stops, Dwell Time)</span>
+              {isAdvancedExpanded ? <ChevronUpIcon size={16} /> : <ChevronDownIcon size={16} />}
+            </button>
+
+            {isAdvancedExpanded && (
+              <div className="kpn-advanced-fields-inner">
+                {/* Max stops & Preferred dwell */}
+                <div className="kpn-config-row-two-col">
+                  <div className="kpn-config-group">
+                    <label className="kpn-config-label">
+                      <span>Max Number of Stops:</span>
+                    </label>
+                    <select
+                      value={config.maxStops || 0}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setConfig((p) => ({ ...p, maxStops: val === 0 ? undefined : val }));
+                      }}
+                      className="kpn-native-select"
+                      id="select-max-stops"
+                    >
+                      <option value="0">Auto (Optimized for time budget)</option>
+                      <option value="3">Maximum 3 stops</option>
+                      <option value="4">Maximum 4 stops</option>
+                      <option value="5">Maximum 5 stops</option>
+                      <option value="6">Maximum 6 stops</option>
+                      <option value="8">Maximum 8 stops</option>
+                    </select>
+                  </div>
+
+                  <div className="kpn-config-group">
+                    <label className="kpn-config-label">
+                      <span>Dwell Time per Pandal:</span>
+                    </label>
+                    <select
+                      value={config.preferredDwellMinutes || 0}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setConfig((p) => ({ ...p, preferredDwellMinutes: val === 0 ? undefined : val }));
+                      }}
+                      className="kpn-native-select"
+                      id="select-dwell-time"
+                    >
+                      <option value="0">Auto (Varies by crowd/category)</option>
+                      <option value="15">Quick (15 min)</option>
+                      <option value="25">Standard (25 min)</option>
+                      <option value="35">Leisurely (35 min)</option>
+                      <option value="45">Deep Exploration (45 min)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Trip Start Time */}
+                <div className="kpn-config-group">
+                  <label className="kpn-config-label">
+                    <span>Trip Start Time:</span>
+                  </label>
                   <input
-                    type="text"
-                    placeholder="Search famous pandals to mark must-visit..."
-                    value={mustVisitSearch}
-                    onChange={(e) => setMustVisitSearch(e.target.value)}
-                    id="must-visit-search-input"
+                    type="time"
+                    value={config.startTime || '19:30'}
+                    onChange={(e) => setConfig((p) => ({ ...p, startTime: e.target.value }))}
+                    className="kpn-native-select"
+                    style={{ background: '#FFF', maxWidth: 160 }}
+                    id="trip-start-time-input"
                   />
-                  {mustVisitSearch && (
-                    <button type="button" onClick={() => setMustVisitSearch('')}>
-                      ✕
+                  <small className="kpn-hint-text">Used to compute estimated arrival and departure timestamps.</small>
+                </div>
+
+                {/* Must-Visit Pandals Picker */}
+                <div className="kpn-config-group">
+                  <div className="kpn-label-with-action">
+                    <label className="kpn-config-label">
+                      <SparklesIcon size={14} />
+                      <span>Must-Visit Pandals ({config.mustVisitPandalIds.length})</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="kpn-text-link-btn"
+                      onClick={() => setIsMustVisitPickerOpen(!isMustVisitPickerOpen)}
+                      id="toggle-must-visit-drawer-btn"
+                    >
+                      {isMustVisitPickerOpen ? 'Close' : '+ Pick Must-Visits'}
                     </button>
+                  </div>
+
+                  {config.mustVisitPandalIds.length > 0 && (
+                    <div className="kpn-must-visit-tags">
+                      {config.mustVisitPandalIds.map((id) => {
+                        const p = allPandals.find((item) => item.id === id);
+                        if (!p) return null;
+                        return (
+                          <span key={id} className="kpn-must-visit-tag">
+                            <span>★ {p.name}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  mustVisitPandalIds: prev.mustVisitPandalIds.filter((mId) => mId !== id),
+                                }))
+                              }
+                              title="Remove must-visit"
+                              aria-label={`Remove ${p.name}`}
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isMustVisitPickerOpen && (
+                    <div className="kpn-must-visit-drawer">
+                      <div className="kpn-drawer-search">
+                        <SearchIcon size={14} />
+                        <input
+                          type="text"
+                          placeholder="Search pandals to mark as Must-Visit..."
+                          value={mustVisitSearch}
+                          onChange={(e) => setMustVisitSearch(e.target.value)}
+                          id="must-visit-search-input"
+                        />
+                        {mustVisitSearch && (
+                          <button type="button" onClick={() => setMustVisitSearch('')}>
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      <div className="kpn-drawer-list">
+                        {filteredMustVisitCandidates.map((pandal) => {
+                          const isChecked = config.mustVisitPandalIds.includes(pandal.id);
+                          return (
+                            <label key={pandal.id} className="kpn-drawer-item">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setConfig((prev) => ({
+                                    ...prev,
+                                    mustVisitPandalIds: checked
+                                      ? [...prev.mustVisitPandalIds, pandal.id]
+                                      : prev.mustVisitPandalIds.filter((id) => id !== pandal.id),
+                                  }));
+                                }}
+                              />
+                              <div className="kpn-drawer-item-info">
+                                <strong>{pandal.name}</strong>
+                                <small>
+                                  {pandal.neighbourhood} · {pandal.category} {pandal.highlighted ? '· ⭐ Famous' : ''}
+                                </small>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                 </div>
-                <div className="kpn-drawer-list">
-                  {filteredMustVisitCandidates.map((pandal) => {
-                    const isChecked = config.mustVisitPandalIds.includes(pandal.id);
-                    return (
-                      <label key={pandal.id} className="kpn-drawer-item">
+
+                {/* Exclude Pandals Picker */}
+                <div className="kpn-config-group">
+                  <div className="kpn-label-with-action">
+                    <label className="kpn-config-label">
+                      <TrashIcon size={14} />
+                      <span>Exclude Pandals ({(config.excludedPandalIds || []).length})</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="kpn-text-link-btn"
+                      onClick={() => setIsExcludePickerOpen(!isExcludePickerOpen)}
+                      id="toggle-exclude-drawer-btn"
+                    >
+                      {isExcludePickerOpen ? 'Close' : '+ Exclude Pandals'}
+                    </button>
+                  </div>
+
+                  {(config.excludedPandalIds || []).length > 0 && (
+                    <div className="kpn-must-visit-tags">
+                      {(config.excludedPandalIds || []).map((id) => {
+                        const p = allPandals.find((item) => item.id === id);
+                        if (!p) return null;
+                        return (
+                          <span key={id} className="kpn-exclude-tag">
+                            <span>🚫 {p.name}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfig((prev) => ({
+                                  ...prev,
+                                  excludedPandalIds: (prev.excludedPandalIds || []).filter((eId) => eId !== id),
+                                }))
+                              }
+                              title="Remove exclusion"
+                              aria-label={`Remove exclusion for ${p.name}`}
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isExcludePickerOpen && (
+                    <div className="kpn-must-visit-drawer">
+                      <div className="kpn-drawer-search">
+                        <SearchIcon size={14} />
                         <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setConfig((prev) => ({
-                              ...prev,
-                              mustVisitPandalIds: checked
-                                ? [...prev.mustVisitPandalIds, pandal.id]
-                                : prev.mustVisitPandalIds.filter((id) => id !== pandal.id),
-                            }));
-                          }}
+                          type="text"
+                          placeholder="Search pandals to exclude from itinerary..."
+                          value={excludeSearch}
+                          onChange={(e) => setExcludeSearch(e.target.value)}
+                          id="exclude-search-input"
                         />
-                        <div className="kpn-drawer-item-info">
-                          <strong>{pandal.name}</strong>
-                          <small>
-                            {pandal.neighbourhood} · {pandal.category} {pandal.highlighted ? '· ⭐ Famous' : ''}
-                          </small>
-                        </div>
-                      </label>
-                    );
-                  })}
+                        {excludeSearch && (
+                          <button type="button" onClick={() => setExcludeSearch('')}>
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      <div className="kpn-drawer-list">
+                        {filteredExcludeCandidates.map((pandal) => {
+                          const isChecked = (config.excludedPandalIds || []).includes(pandal.id);
+                          return (
+                            <label key={pandal.id} className="kpn-drawer-item">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setConfig((prev) => {
+                                    const currentEx = prev.excludedPandalIds || [];
+                                    return {
+                                      ...prev,
+                                      excludedPandalIds: checked
+                                        ? [...currentEx, pandal.id]
+                                        : currentEx.filter((id) => id !== pandal.id),
+                                    };
+                                  });
+                                }}
+                              />
+                              <div className="kpn-drawer-item-info">
+                                <strong>{pandal.name}</strong>
+                                <small>{pandal.neighbourhood} · {pandal.category}</small>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* GENERATE PRIMARY ACTION */}
+          {/* ACTION BUTTON */}
           <div className="kpn-planner-action-bar">
             {errorMessage && (
               <div className="kpn-planner-error-banner" role="alert">
@@ -941,12 +1423,12 @@ export function NightPlanner({
               {isGenerating ? (
                 <>
                   <span className="kpn-spinner-white" />
-                  <span>Optimizing Your Hopping Route...</span>
+                  <span>Computing Optimized Pujo Route...</span>
                 </>
               ) : (
                 <>
                   <SparklesIcon size={18} />
-                  <span>Generate My Pujo Route</span>
+                  <span>{currentNightPlan ? 'Regenerate Pujo Route' : 'Generate My Pujo Route'}</span>
                 </>
               )}
             </button>
@@ -976,7 +1458,7 @@ export function NightPlanner({
                 <span className="kpn-metric-number">
                   {(currentNightPlan.totalWalkingDistanceMeters / 1000).toFixed(1)} km
                 </span>
-                <span className="kpn-metric-label">Est. Walk</span>
+                <span className="kpn-metric-label">Est. Walking</span>
               </div>
             </div>
 
@@ -987,28 +1469,30 @@ export function NightPlanner({
               </span>
               <span className="kpn-breakdown-item">
                 <WalkIcon size={13} />
-                <span>Travel Time: ~{formatMinutes(currentNightPlan.totalTravelMinutes)}</span>
+                <span>Travel Corridor: ~{formatMinutes(currentNightPlan.totalTravelMinutes)}</span>
               </span>
             </div>
 
             <div className="kpn-summary-endpoints">
               <span className="kpn-endpoint-label">
-                <strong>Origin:</strong> {currentNightPlan.startPoint.label}
+                <strong>Start:</strong> {currentNightPlan.startPoint.label}
               </span>
               <span className="kpn-endpoint-sep">➔</span>
               <span className="kpn-endpoint-label">
-                <strong>Finish:</strong>{' '}
-                {currentNightPlan.stops[currentNightPlan.stops.length - 1]?.name}
+                <strong>End:</strong>{' '}
+                {currentNightPlan.endPoint
+                  ? currentNightPlan.endPoint.label
+                  : currentNightPlan.stops[currentNightPlan.stops.length - 1]?.name}
               </span>
             </div>
 
             <div className="kpn-verified-pill-row">
               <span className="kpn-verified-disclaimer-pill">
-                ⏱ Planning Estimates · Verified OpenStreetMap GPS
+                ⏱ Verified OpenStreetMap & OSRM Pedestrian Paths
               </span>
               {currentNightPlan.routeResult?.source === 'fallback' && (
                 <span className="kpn-fallback-pill">
-                  ℹ Approximate pedestrian link (OSRM street grid fallback)
+                  ℹ Approximate street grid calculation (offline mode)
                 </span>
               )}
             </div>
@@ -1019,11 +1503,16 @@ export function NightPlanner({
                 <button
                   type="button"
                   className="kpn-action-chip primary"
-                  onClick={onViewOnMap}
+                  onClick={() => {
+                    if (isMobileSheet && onSheetStateChange) {
+                      onSheetStateChange('collapsed');
+                    }
+                    onViewOnMap();
+                  }}
                   id="view-itinerary-map-btn"
                 >
                   <CompassIcon size={14} />
-                  <span>View Route on Map</span>
+                  <span>View on Map</span>
                 </button>
               )}
 
@@ -1066,30 +1555,30 @@ export function NightPlanner({
           </div>
 
           {/* B. SKIPPED MUST-VISIT WARNING BANNER */}
-          {currentNightPlan.skippedMustVisits &&
-            currentNightPlan.skippedMustVisits.length > 0 && (
-              <div className="kpn-skipped-alert-box" role="alert">
-                <div className="kpn-skipped-alert-header">
-                  <AlertTriangleIcon size={16} />
-                  <strong>
-                    {currentNightPlan.skippedMustVisits.length} Must-Visit Pandal
-                    {currentNightPlan.skippedMustVisits.length > 1 ? 's' : ''} Could Not Fit
-                  </strong>
-                </div>
-                <ul className="kpn-skipped-list">
-                  {currentNightPlan.skippedMustVisits.map((item) => (
-                    <li key={item.pandalId} className="kpn-skipped-item">
-                      <strong>{item.name}:</strong> {item.reason}
-                    </li>
-                  ))}
-                </ul>
+          {currentNightPlan.skippedMustVisits && currentNightPlan.skippedMustVisits.length > 0 && (
+            <div className="kpn-skipped-alert-box" role="alert">
+              <div className="kpn-skipped-alert-header">
+                <AlertTriangleIcon size={16} />
+                <strong>
+                  {currentNightPlan.skippedMustVisits.length} Must-Visit Pandal
+                  {currentNightPlan.skippedMustVisits.length > 1 ? 's' : ''} Could Not Fit
+                </strong>
               </div>
-            )}
+              <ul className="kpn-skipped-list">
+                {currentNightPlan.skippedMustVisits.map((item) => (
+                  <li key={item.pandalId} className="kpn-skipped-item">
+                    <strong>{item.name}:</strong> {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* C. INTERACTIVE TIMELINE STOPS LIST */}
           <div className="kpn-timeline-wrap">
             {currentNightPlan.stops.map((stop, idx) => {
               const isStartNode = stop.type === 'start';
+              const isEndNode = stop.type === 'end';
               const isSelected = selectedStopId === stop.id;
               const catMeta = stop.category
                 ? CATEGORY_STYLES[stop.category] || DEFAULT_CATEGORY_STYLE
@@ -1102,7 +1591,7 @@ export function NightPlanner({
                 >
                   {/* Stop Card */}
                   <div
-                    className={`kpn-stop-card ${isStartNode ? 'is-start-node' : ''}`}
+                    className={`kpn-stop-card ${isStartNode ? 'is-start-node' : ''} ${isEndNode ? 'is-end-node' : ''}`}
                     onClick={() => {
                       setSelectedStopId(stop.id);
                       if (onSelectStop) onSelectStop(stop);
@@ -1114,12 +1603,12 @@ export function NightPlanner({
                   >
                     {/* Badge */}
                     <div
-                      className={`kpn-stop-badge ${isStartNode ? 'start' : ''}`}
+                      className={`kpn-stop-badge ${isStartNode ? 'start' : ''} ${isEndNode ? 'end' : ''}`}
                       style={{
-                        backgroundColor: isStartNode ? '#00875A' : catMeta.color,
+                        backgroundColor: isStartNode ? '#00875A' : isEndNode ? '#E8590C' : catMeta.color,
                       }}
                     >
-                      {isStartNode ? 'Start' : stop.stopNumber}
+                      {isStartNode ? 'Start' : isEndNode ? 'End' : stop.stopNumber}
                     </div>
 
                     {/* Content */}
@@ -1137,7 +1626,17 @@ export function NightPlanner({
                         <span className="kpn-stop-bengali-name">{stop.bengaliName}</span>
                       )}
 
-                      {!isStartNode && stop.category && (
+                      {/* Timestamps if computed */}
+                      {stop.arrivalTime && (
+                        <div className="kpn-stop-schedule-time">
+                          <ClockIcon size={12} />
+                          <span>
+                            {stop.arrivalTime} {stop.departureTime ? `– ${stop.departureTime}` : ''}
+                          </span>
+                        </div>
+                      )}
+
+                      {!isStartNode && !isEndNode && stop.category && (
                         <div className="kpn-stop-meta-tags">
                           <span
                             className="kpn-category-tag"
@@ -1162,20 +1661,17 @@ export function NightPlanner({
                       </p>
 
                       {/* Duration planning estimate */}
-                      {!isStartNode && (
+                      {!isStartNode && !isEndNode && (
                         <div className="kpn-visit-est-badge">
                           <ClockIcon size={12} />
-                          <span>Est. {stop.suggestedVisitMinutes} min visit (planning estimate)</span>
+                          <span>Est. {stop.suggestedVisitMinutes} min dwell time</span>
                         </div>
                       )}
                     </div>
 
                     {/* Card Actions */}
-                    {!isStartNode && (
-                      <div
-                        className="kpn-stop-actions"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                    {!isStartNode && !isEndNode && (
+                      <div className="kpn-stop-actions" onClick={(e) => e.stopPropagation()}>
                         {/* View Pandal Details */}
                         {stop.pandal && (
                           <button
@@ -1207,7 +1703,12 @@ export function NightPlanner({
                           type="button"
                           className="kpn-stop-action-btn move"
                           onClick={() => handleMoveStop(idx, 'down')}
-                          disabled={idx >= currentNightPlan.stops.length - 1}
+                          disabled={
+                            idx >=
+                            (currentNightPlan.stops[currentNightPlan.stops.length - 1]?.type === 'end'
+                              ? currentNightPlan.stops.length - 2
+                              : currentNightPlan.stops.length - 1)
+                          }
                           title="Move later in route"
                           aria-label="Move down"
                         >
@@ -1217,9 +1718,7 @@ export function NightPlanner({
                         {/* Toggle Must-Visit */}
                         <button
                           type="button"
-                          className={`kpn-stop-action-btn star ${
-                            stop.isMustVisit ? 'is-starred' : ''
-                          }`}
+                          className={`kpn-stop-action-btn star ${stop.isMustVisit ? 'is-starred' : ''}`}
                           onClick={() => handleToggleMustVisitOnStop(stop)}
                           title={stop.isMustVisit ? 'Unmark must-visit' : 'Mark as must-visit'}
                           aria-label="Toggle must visit"
@@ -1255,8 +1754,7 @@ export function NightPlanner({
                           <>
                             <WalkIcon size={14} />
                             <span>
-                              ~{stop.legToNext.timeMinutes} min walk (
-                              {Math.round(stop.legToNext.distanceMeters)} m)
+                              ~{stop.legToNext.timeMinutes} min walk ({Math.round(stop.legToNext.distanceMeters)} m)
                             </span>
                           </>
                         )}
@@ -1331,9 +1829,7 @@ export function NightPlanner({
                     </div>
                   ) : (
                     filteredCandidatesToAdd.map((pandal) => {
-                      const alreadyInRoute = currentNightPlan.stops.some(
-                        (s) => s.pandalId === pandal.id
-                      );
+                      const alreadyInRoute = currentNightPlan.stops.some((s) => s.pandalId === pandal.id);
                       const cat = CATEGORY_STYLES[pandal.category] || DEFAULT_CATEGORY_STYLE;
                       return (
                         <div key={pandal.id} className="kpn-modal-item-row">
@@ -1351,9 +1847,7 @@ export function NightPlanner({
 
                           <button
                             type="button"
-                            className={`kpn-btn-insert-stop ${
-                              alreadyInRoute ? 'is-added' : ''
-                            }`}
+                            className={`kpn-btn-insert-stop ${alreadyInRoute ? 'is-added' : ''}`}
                             onClick={() => handleAddPandalToRoute(pandal)}
                             disabled={alreadyInRoute}
                           >
@@ -1376,134 +1870,160 @@ export function NightPlanner({
           <div className="kpn-empty-state-art">🪔 🌙 ⭐</div>
           <h3>Craft Your Customized Durga Puja Hopping Night</h3>
           <p>
-            Choose your starting point, time available, and artistic preferences above. We’ll generate
-            an optimized walking & Metro route that minimizes backtracking!
+            Choose your starting station, finishing point, time budget, and preferences above.
+            We will calculate an itinerary with real Metro connections and walking corridors.
           </p>
         </div>
       )}
-        </>
-      )}
+    </div>
+  );
 
-      {/* 4. ROUTING PROVIDER & API KEY MODAL */}
-      {isSettingsOpen && (
-        <div className="kpn-filter-drawer-overlay" role="dialog" aria-modal="true" onClick={() => setIsSettingsOpen(false)}>
-          <div className="kpn-settings-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="kpn-drawer-head">
-              <div className="kpn-drawer-title-wrap">
-                <h3>Routing Engine & API Key</h3>
-                <span className="kpn-drawer-sub">Live pedestrian pathing for Kolkata Durga Puja hopping</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(false)}
-                className="kpn-drawer-close"
-                aria-label="Close dialog"
-                id="close-routing-settings-btn"
-              >
-                ✕
-              </button>
+  // RENDER: Active Routing Provider Settings Modal
+  const renderSettingsModal = () => (
+    isSettingsOpen && (
+      <div className="kpn-filter-drawer-overlay" role="dialog" aria-modal="true" onClick={() => setIsSettingsOpen(false)}>
+        <div className="kpn-settings-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="kpn-drawer-head">
+            <div className="kpn-drawer-title-wrap">
+              <h3>Routing Engine & API Key</h3>
+              <span className="kpn-drawer-sub">Live pedestrian pathing for Kolkata Durga Puja hopping</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(false)}
+              className="kpn-drawer-close"
+              aria-label="Close dialog"
+              id="close-routing-settings-btn"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="kpn-drawer-body">
+            <label className="kpn-filter-label">Select Active Routing Provider:</label>
+
+            <div className="kpn-provider-options">
+              <label className={`kpn-provider-radio-card ${routingProvider === 'osm' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="routingProvider"
+                  checked={routingProvider === 'osm'}
+                  onChange={() => setRoutingProvider('osm')}
+                />
+                <div>
+                  <strong>Fast OpenStreetMap & OSRM Mirrors (Recommended)</strong>
+                  <small>No API key required. High-speed street pathing with 100% offline fallback.</small>
+                </div>
+              </label>
+
+              <label className={`kpn-provider-radio-card ${routingProvider === 'ors' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="routingProvider"
+                  checked={routingProvider === 'ors'}
+                  onChange={() => setRoutingProvider('ors')}
+                />
+                <div>
+                  <strong>OpenRouteService (ORS)</strong>
+                  <small>Free key available at openrouteservice.org with precise footway pathing.</small>
+                </div>
+              </label>
+
+              <label className={`kpn-provider-radio-card ${routingProvider === 'geoapify' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="routingProvider"
+                  checked={routingProvider === 'geoapify'}
+                  onChange={() => setRoutingProvider('geoapify')}
+                />
+                <div>
+                  <strong>Geoapify Routing API</strong>
+                  <small>Free key at geoapify.com with accurate urban routing geometries.</small>
+                </div>
+              </label>
+
+              <label className={`kpn-provider-radio-card ${routingProvider === 'mapbox' ? 'is-active' : ''}`}>
+                <input
+                  type="radio"
+                  name="routingProvider"
+                  checked={routingProvider === 'mapbox'}
+                  onChange={() => setRoutingProvider('mapbox')}
+                />
+                <div>
+                  <strong>Mapbox Directions API</strong>
+                  <small>Free access token at mapbox.com for worldwide pedestrian routing.</small>
+                </div>
+              </label>
             </div>
 
-            <div className="kpn-drawer-body">
-              <label className="kpn-filter-label">Select Active Routing Provider:</label>
-
-              <div className="kpn-provider-options">
-                <label className={`kpn-provider-radio-card ${routingProvider === 'osm' ? 'is-active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="routingProvider"
-                    checked={routingProvider === 'osm'}
-                    onChange={() => setRoutingProvider('osm')}
-                  />
-                  <div>
-                    <strong>Fast OpenStreetMap & OSRM Mirrors (Recommended)</strong>
-                    <small>No API key required. Snaps walking paths along Kolkata streets via high-speed European OSM mirrors with 100% offline fallback.</small>
-                  </div>
-                </label>
-
-                <label className={`kpn-provider-radio-card ${routingProvider === 'ors' ? 'is-active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="routingProvider"
-                    checked={routingProvider === 'ors'}
-                    onChange={() => setRoutingProvider('ors')}
-                  />
-                  <div>
-                    <strong>OpenRouteService (ORS)</strong>
-                    <small>Free key available at openrouteservice.org. 2,000 requests/day with precise footways and walking directions.</small>
-                  </div>
-                </label>
-
-                <label className={`kpn-provider-radio-card ${routingProvider === 'geoapify' ? 'is-active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="routingProvider"
-                    checked={routingProvider === 'geoapify'}
-                    onChange={() => setRoutingProvider('geoapify')}
-                  />
-                  <div>
-                    <strong>Geoapify Routing API</strong>
-                    <small>Free key at geoapify.com. 3,000 credits/day with excellent urban pedestrian routing geometries.</small>
-                  </div>
-                </label>
-
-                <label className={`kpn-provider-radio-card ${routingProvider === 'mapbox' ? 'is-active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="routingProvider"
-                    checked={routingProvider === 'mapbox'}
-                    onChange={() => setRoutingProvider('mapbox')}
-                  />
-                  <div>
-                    <strong>Mapbox Directions API</strong>
-                    <small>Free access token at mapbox.com (100,000 free requests/month) for worldwide high-fidelity pedestrian routing.</small>
-                  </div>
-                </label>
+            {routingProvider !== 'osm' && (
+              <div className="kpn-api-key-input-wrap">
+                <label className="kpn-filter-label">Enter your {routingProvider.toUpperCase()} Key / Token:</label>
+                <input
+                  type="text"
+                  className="kpn-native-select"
+                  style={{ background: '#FFFFFF', padding: '8px 10px' }}
+                  placeholder={`Paste your ${routingProvider.toUpperCase()} API key here...`}
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  id="routing-api-key-input"
+                />
+                <small className="kpn-hint-text">Saved directly into browser localStorage.</small>
               </div>
+            )}
 
-              {routingProvider !== 'osm' && (
-                <div className="kpn-api-key-input-wrap">
-                  <label className="kpn-filter-label">Enter your {routingProvider.toUpperCase()} Key / Token:</label>
-                  <input
-                    type="text"
-                    className="kpn-native-select"
-                    style={{ background: '#FFFFFF', padding: '8px 10px' }}
-                    placeholder={`Paste your ${routingProvider.toUpperCase()} API key here...`}
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    id="routing-api-key-input"
-                  />
-                  <small className="kpn-hint-text">
-                    Saved directly into browser localStorage.
-                  </small>
-                </div>
-              )}
+            {apiKeySavedStatus && (
+              <div className="kpn-settings-saved-badge">✓ {apiKeySavedStatus}</div>
+            )}
 
-              {apiKeySavedStatus && (
-                <div className="kpn-settings-saved-badge">✓ {apiKeySavedStatus}</div>
-              )}
-
-              <div className="kpn-settings-actions">
-                <button
-                  type="button"
-                  className="kpn-btn-primary-action"
-                  onClick={() => {
-                    setStoredRoutingConfig(routingProvider, apiKeyInput.trim() || null);
-                    setApiKeySavedStatus('Settings saved successfully!');
-                    setTimeout(() => {
-                      setApiKeySavedStatus(null);
-                      setIsSettingsOpen(false);
-                    }, 1000);
-                  }}
-                  id="save-routing-settings-btn"
-                >
-                  Save & Apply Engine
-                </button>
-              </div>
+            <div className="kpn-settings-actions">
+              <button
+                type="button"
+                className="kpn-btn-primary-action"
+                onClick={() => {
+                  setStoredRoutingConfig(routingProvider, apiKeyInput.trim() || null);
+                  setApiKeySavedStatus('Settings saved successfully!');
+                  setTimeout(() => {
+                    setApiKeySavedStatus(null);
+                    setIsSettingsOpen(false);
+                  }, 1000);
+                }}
+                id="save-routing-settings-btn"
+              >
+                Save & Apply Engine
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </div>
+    )
+  );
+
+  // MOBILE: Return unified 3-state BottomSheet
+  if (isMobileSheet) {
+    return (
+      <>
+        <BottomSheet
+          state={sheetState}
+          onStateChange={onSheetStateChange || (() => {})}
+          headerContent={renderHeader()}
+          collapsedPreview={renderCollapsedPreview()}
+          className="kpn-night-planner-bottom-sheet"
+          id="night-planner-mobile-bottom-sheet"
+        >
+          {renderMainContent()}
+        </BottomSheet>
+        {renderSettingsModal()}
+      </>
+    );
+  }
+
+  // DESKTOP: Return sidebar container
+  return (
+    <div className="kpn-night-planner-container kpn-planner-desktop">
+      {renderHeader()}
+      {renderMainContent()}
+      {renderSettingsModal()}
     </div>
   );
 }

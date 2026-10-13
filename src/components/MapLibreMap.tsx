@@ -21,6 +21,7 @@ interface MapLibreMapProps {
   flyToTarget: { lat: number; lng: number; zoom?: number } | null;
   onNearbyFound?: (count: number) => void;
   onSelectRouteStop?: (stop: RouteStop) => void;
+  onMapBackgroundClick?: () => void;
 }
 
 
@@ -75,6 +76,7 @@ export function MapLibreMap({
   flyToTarget,
   onNearbyFound,
   onSelectRouteStop,
+  onMapBackgroundClick,
 }: MapLibreMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -96,6 +98,14 @@ export function MapLibreMap({
   const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker[]>([]);
   const activePopupRef = useRef<maplibregl.Popup | null>(null);
+
+  // Keep latest callbacks and pandals in refs to avoid stale closures in map event handlers
+  const onSelectPandalRef = useRef(onSelectPandal);
+  onSelectPandalRef.current = onSelectPandal;
+  const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
+  onMapBackgroundClickRef.current = onMapBackgroundClick;
+  const pandalsRef = useRef(pandals);
+  pandalsRef.current = pandals;
 
   // Prepare GeoJSON for Pandals
   const pandalsGeoJson = useMemo(() => {
@@ -384,10 +394,38 @@ export function MapLibreMap({
         const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-touch-hitbox'] });
         if (!features.length) return;
         const props = features[0].properties;
-        const found = pandals.find((p) => p.id === props.id);
+        const found = pandalsRef.current.find((p) => p.id === props.id);
         if (found) {
-          onSelectPandal(found);
+          onSelectPandalRef.current(found);
         }
+      });
+
+      // Event: Click on unobstructed area of the map canvas
+      map.on('click', (e) => {
+        // Check if an interactive layer feature was clicked
+        const interactiveLayers = [
+          'pandals-clusters',
+          'unclustered-touch-hitbox',
+          'selected-pandal-pulse-ring',
+        ].filter((l) => map.getLayer(l));
+
+        const features = map.queryRenderedFeatures(e.point, { layers: interactiveLayers });
+        if (features && features.length > 0) {
+          return;
+        }
+
+        // Check if click was on or inside an overlay element (marker, popup, control, button)
+        const target = e.originalEvent?.target as HTMLElement | null;
+        if (
+          target &&
+          target.closest(
+            '.maplibregl-popup, .maplibregl-marker, .kpn-map-floating-controls, .kpn-map-layer-toggles, .kpn-map-legend-card, .kpn-waypoint-marker, .kpn-user-location-marker, button, a'
+          )
+        ) {
+          return;
+        }
+
+        onMapBackgroundClickRef.current?.();
       });
 
       // Cursor pointer on hover
